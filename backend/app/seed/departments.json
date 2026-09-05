@@ -1,0 +1,15 @@
+[
+    {"name": "Public Works", "description": "Roads, bridges, and public infrastructure"},
+    {"name": "Water Supply", "description": "Water distribution, pipelines, and water quality"},
+    {"name": "Drainage & Sewage", "description": "Stormwater drains, sewage systems, and flooding"},
+    {"name": "Sanitation & Waste", "description": "Garbage collection, waste management, and cleanliness"},
+    {"name": "Electricity", "description": "Power supply, streetlights, and electrical infrastructure"},
+    {"name": "Healthcare", "description": "Public health facilities, sanitation, and health services"},
+    {"name": "Education", "description": "Public schools, educational infrastructure, and programs"},
+    {"name": "Public Transport", "description": "Bus services, transit stops, and public mobility"},
+    {"name": "Parks & Recreation", "description": "Parks, playgrounds, and community spaces"},
+    {"name": "Building & Construction", "description": "Building permits, illegal construction, and safety"},
+    {"name": "Pollution", "description": "Air, water, noise, and soil pollution control"},
+    {"name": "Public Safety", "description": "Street safety, lighting, and hazard management"},
+    {"name": "General Administration", "description": "General administrative and miscellaneous issues"}
+]
