@@ -1,293 +1,337 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import type { DashboardSummary, PriorityScore } from '@/lib/types';
+import { api } from '@/lib/api';
+import { getStatusColor, getStatusLabel, getSeverityLabel, getSeverityColor, formatDate } from '@/lib/utils';
 import {
-  AlertTriangle,
   FileText,
-  MapPin,
+  AlertTriangle,
   CheckCircle2,
-  FolderKanban,
-  TrendingUp,
+  Clock,
+  Layers,
+  MapPin,
   ArrowRight,
-  BarChart3,
+  TrendingUp,
+  Shield,
   Loader2,
-  Building2,
-  Bot,
-  Calculator
+  AlertCircle,
+  Map as MapIcon,
 } from 'lucide-react';
 
-const mockSummary: DashboardSummary = {
-  total_complaints: 1247,
-  active_complaints: 342,
-  high_priority_areas: 8,
-  pending_verifications: 56,
-  active_projects: 12,
-  resolved_this_month: 89,
-  avg_resolution_score: 72.5,
-};
+interface DashboardSummary {
+  total_complaints: number;
+  active_complaints: number;
+  high_priority_areas: number;
+  pending_verifications: number;
+  resolved_this_month: number;
+}
 
-const mockPriorities: PriorityScore[] = [
-  {
-    id: '1',
-    ward_id: 7,
-    ward_name: 'Connaught Place Ward',
-    category: 'Road Infrastructure',
-    total_score: 87,
-    demand_score: 92,
-    severity_score: 85,
-    population_score: 78,
-    infrastructure_gap_score: 90,
-    unresolved_score: 76,
-  },
-  {
-    id: '2',
-    ward_id: 12,
-    ward_name: 'Karol Bagh Ward',
-    category: 'Water Supply',
-    total_score: 81,
-    demand_score: 88,
-    severity_score: 79,
-    population_score: 85,
-    infrastructure_gap_score: 72,
-    unresolved_score: 82,
-  },
-  {
-    id: '3',
-    ward_id: 3,
-    ward_name: 'Chandni Chowk Ward',
-    category: 'Drainage & Sewage',
-    total_score: 76,
-    demand_score: 71,
-    severity_score: 82,
-    population_score: 90,
-    infrastructure_gap_score: 68,
-    unresolved_score: 65,
-  },
-  {
-    id: '4',
-    ward_id: 18,
-    ward_name: 'Dwarka Ward',
-    category: 'Sanitation & Waste',
-    total_score: 69,
-    demand_score: 65,
-    severity_score: 73,
-    population_score: 60,
-    infrastructure_gap_score: 78,
-    unresolved_score: 71,
-  },
-  {
-    id: '5',
-    ward_id: 25,
-    ward_name: 'Rohini Ward',
-    category: 'Electricity',
-    total_score: 63,
-    demand_score: 58,
-    severity_score: 68,
-    population_score: 72,
-    infrastructure_gap_score: 55,
-    unresolved_score: 60,
-  },
-];
+interface CategoryTrend {
+  category: string;
+  count: number;
+}
+
+interface RecentComplaint {
+  id: string;
+  original_text: string;
+  category: string | null;
+  severity: number | null;
+  status: string;
+  created_at: string;
+  address: string | null;
+}
 
 export default function DashboardPage() {
-  const [summary] = useState<DashboardSummary>(mockSummary);
-  const [priorities] = useState<PriorityScore[]>(mockPriorities);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [categories, setCategories] = useState<CategoryTrend[]>([]);
+  const [recentComplaints, setRecentComplaints] = useState<RecentComplaint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const statCards = [
-    {
-      label: 'Open Complaints',
-      value: summary.active_complaints,
-      icon: FileText,
-      href: '/dashboard/complaints',
-    },
-    {
-      label: 'High Priority Wards',
-      value: summary.high_priority_areas,
-      icon: AlertTriangle,
-      href: '/dashboard/priorities',
-    },
-    {
-      label: 'Pending Verifications',
-      value: summary.pending_verifications,
-      icon: CheckCircle2,
-      href: '/dashboard/complaints',
-    },
-    {
-      label: 'Active Municipal Projects',
-      value: summary.active_projects,
-      icon: FolderKanban,
-      href: '/dashboard/projects',
-    },
-    {
-      label: 'Resolved This Month',
-      value: summary.resolved_this_month,
-      icon: TrendingUp,
-      href: '/dashboard/impact',
-    },
-    {
-      label: 'Total Registered File Count',
-      value: summary.total_complaints.toLocaleString(),
-      icon: BarChart3,
-      href: '/dashboard/complaints',
-    },
-  ];
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        setLoading(true);
+        setError('');
+
+        const [summaryRes, trendsRes, complaintsRes] = await Promise.allSettled([
+          api.get<DashboardSummary>('/api/dashboard/summary'),
+          api.get<{ by_category?: CategoryTrend[] }>('/api/dashboard/trends'),
+          api.get<{ items?: RecentComplaint[] }>('/api/complaints?page=1&limit=6'),
+        ]);
+
+        if (summaryRes.status === 'fulfilled') {
+          setSummary(summaryRes.value);
+        } else {
+          setError('Failed to load dashboard summary');
+        }
+
+        if (trendsRes.status === 'fulfilled' && trendsRes.value?.by_category) {
+          setCategories(trendsRes.value.by_category);
+        }
+
+        if (complaintsRes.status === 'fulfilled' && complaintsRes.value?.items) {
+          setRecentComplaints(complaintsRes.value.items);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, []);
 
   return (
-    <div className="space-y-6 bg-slate-50">
-      
+    <div className="space-y-8">
       {/* Header */}
-      <div className="bg-white rounded-md border border-slate-200 p-6 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 uppercase tracking-wider mb-1">
-          <Building2 className="h-4 w-4" /> Operations Command Center
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Municipal Operations Command</h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">Real-time civic grievance telemetry, triage distribution, and department dispatching</p>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          Municipal Issue Dashboard
-        </h1>
-        <p className="text-xs text-slate-600 mt-1">
-          Live operational status of grievances, priority scores, and department dispatching across municipal wards.
-        </p>
-      </div>
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        {statCards.map((card) => (
+        <div className="flex items-center gap-2.5">
           <Link
-            key={card.label}
-            href={card.href}
-            className="group rounded-md border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-600 transition-colors"
+            href="/dashboard/complaints"
+            className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-700/20 transition-all"
           >
-            <div className="flex items-center justify-between text-slate-500 mb-2">
-              <card.icon className="h-4 w-4 text-blue-700" />
-            </div>
-            <div className="text-2xl font-bold text-slate-900 font-mono">{card.value}</div>
-            <div className="text-[11px] font-semibold text-slate-600 mt-1">{card.label}</div>
+            Manage Registry
           </Link>
-        ))}
-      </div>
-
-      {/* Resolution score bar */}
-      <div className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Citywide Resolution Performance Score
-            </h2>
-            <span className="text-[11px] text-slate-500">Aggregated from verified citizen feedback & SLA compliance</span>
-          </div>
           <Link
-            href="/dashboard/impact"
-            className="text-xs text-blue-700 font-bold hover:underline flex items-center gap-1"
+            href="/dashboard/heatmap"
+            className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
           >
-            View Detailed Metrics <ArrowRight className="h-3.5 w-3.5" />
+            <MapIcon className="h-3.5 w-3.5 text-slate-500" />
+            Live Map
           </Link>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-3xl font-bold text-slate-900 font-mono">
-            {summary.avg_resolution_score}%
-          </div>
-          <div className="flex-1">
-            <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-              <div
-                className="h-full bg-blue-700 rounded-full"
-                style={{ width: `${summary.avg_resolution_score}%` }}
-              />
-            </div>
-          </div>
-        </div>
-        <p className="text-[10px] text-slate-400 mt-2 italic">
-          Illustrative prototype metric
-        </p>
       </div>
 
-      {/* Top priority areas */}
-      <div className="rounded-md border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-100">
-          <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Highest Priority Municipal Wards
-          </h2>
-          <Link
-            href="/dashboard/priorities"
-            className="text-xs text-blue-700 font-bold hover:underline flex items-center gap-1"
-          >
-            View Complete Ward Priority Index <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <Loader2 className="h-8 w-8 text-blue-700 animate-spin" />
+          <p className="text-xs text-slate-500 font-medium">Gathering municipal telemetry data...</p>
         </div>
-
-        <div className="divide-y divide-slate-200 text-xs">
-          {priorities.map((area, index) => (
-            <div
-              key={area.id}
-              className="flex items-center gap-4 px-5 py-3 hover:bg-slate-50 transition-colors"
+      ) : error ? (
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-8 text-center space-y-4 max-w-md mx-auto my-12 shadow-xs">
+          <div className="h-12 w-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+            <AlertCircle className="h-6 w-6" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold text-slate-900">
+              {error.toLowerCase().includes('authenticated') || error.toLowerCase().includes('forbidden') || error.toLowerCase().includes('401') || error.toLowerCase().includes('403')
+                ? 'Officer Authentication Required'
+                : 'Dashboard Telemetry Unavailable'}
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {error.toLowerCase().includes('authenticated') || error.toLowerCase().includes('forbidden') || error.toLowerCase().includes('401') || error.toLowerCase().includes('403')
+                ? 'Please sign in with officer or administrator credentials to access operations metrics.'
+                : error}
+            </p>
+          </div>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link
+              href="/login"
+              className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
             >
-              <div className="flex items-center justify-center h-6 w-6 rounded bg-slate-200 text-xs font-bold text-slate-800">
-                #{index + 1}
+              Sign In as Officer
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Registered</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+              </div>
+              <p className="mt-2 text-3xl font-black text-slate-900">{summary?.total_complaints ?? 0}</p>
+              <p className="text-xs text-slate-500 mt-1">All civic complaints logged</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Active Work Queue</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              </div>
+              <p className="mt-2 text-3xl font-black text-slate-900">{summary?.active_complaints ?? 0}</p>
+              <p className="text-xs text-slate-500 mt-1">Assigned or in progress</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-rose-600">High Priority Wards</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+              </div>
+              <p className="mt-2 text-3xl font-black text-slate-900">{summary?.high_priority_areas ?? 0}</p>
+              <p className="text-xs text-slate-500 mt-1">Critical severity (&gt;65)</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Resolved This Month</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </div>
+              <p className="mt-2 text-3xl font-black text-slate-900">{summary?.resolved_this_month ?? 0}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {summary?.pending_verifications ? `${summary.pending_verifications} awaiting audit` : 'All verified closed'}
+              </p>
+            </div>
+          </div>
+
+          {/* Category Breakdown & Operations Links */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Category Breakdown */}
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">Complaints by Department Category</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Automated AI distribution across municipal wards</p>
+                </div>
+                <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full">Active</span>
               </div>
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-900 truncate">
-                    {area.ward_name}
-                  </span>
-                  <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700 border border-slate-200">
-                    {area.category}
-                  </span>
+              {categories.length === 0 ? (
+                <p className="text-xs text-slate-400 py-8 text-center">No category breakdown data available yet.</p>
+              ) : (
+                <div className="space-y-3.5 pt-2">
+                  {categories.map((cat, idx) => {
+                    const total = summary?.total_complaints || 1;
+                    const percent = Math.min(100, Math.round((cat.count / total) * 100));
+                    return (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span className="text-slate-800">{cat.category}</span>
+                          <span className="text-slate-500">{cat.count} issues ({percent}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.max(6, percent)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div
-                      className={`h-full rounded-full ${area.total_score >= 80 ? 'bg-red-600' : 'bg-amber-500'}`}
-                      style={{ width: `${area.total_score}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-900">
-                    Score: {area.total_score}
-                  </span>
-                </div>
-              </div>
+              )}
+            </div>
+
+            {/* Quick Operations Views */}
+            <div className="space-y-3.5">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">Operations Consoles</h2>
 
               <Link
-                href="/dashboard/priorities"
-                className="text-blue-700 font-semibold hover:underline shrink-0"
+                href="/dashboard/complaints"
+                className="block p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm transition-all group"
               >
-                Inspect Ward →
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                    Complaints Registry
+                  </h3>
+                  <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Review cases, update department workflow status, and inspect issues.</p>
+              </Link>
+
+              <Link
+                href="/dashboard/heatmap"
+                className="block p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                    Geospatial Heatmap
+                  </h3>
+                  <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Pinpoint high-density incident clusters across the municipal grid.</p>
+              </Link>
+
+              <Link
+                href="/dashboard/clusters"
+                className="block p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                    Issue Clusters
+                  </h3>
+                  <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">Analyze recurring municipal patterns grouped by severity and category.</p>
               </Link>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Quick operational links */}
-      <div className="grid md:grid-cols-3 gap-3">
-        <Link
-          href="/dashboard/heatmap"
-          className="group rounded-md border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-600 transition-colors"
-        >
-          <MapPin className="h-4 w-4 text-blue-700 mb-2" />
-          <h3 className="text-xs font-bold text-slate-900 mb-1">Issue Density Heatmap</h3>
-          <p className="text-[11px] text-slate-600">Locate geospatial grievance clusters across the city</p>
-        </Link>
+          {/* Recent Live Complaints Feed */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-5 sm:px-6 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900">Recent Incident Feed</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Live complaints streamed from citizens</p>
+              </div>
+              <Link
+                href="/dashboard/complaints"
+                className="text-xs font-bold text-blue-700 hover:underline flex items-center gap-1"
+              >
+                <span>View Full Registry</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
 
-        <Link
-          href="/dashboard/copilot"
-          className="group rounded-md border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-600 transition-colors"
-        >
-          <Bot className="h-4 w-4 text-blue-700 mb-2" />
-          <h3 className="text-xs font-bold text-slate-900 mb-1">Intelligence Copilot</h3>
-          <p className="text-[11px] text-slate-600">Query municipal database records via natural language</p>
-        </Link>
+            {recentComplaints.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-400">
+                No recent complaints logged in the registry.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {recentComplaints.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 sm:px-6 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1.5 max-w-2xl">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getStatusColor(item.status)}`}>
+                          {getStatusLabel(item.status)}
+                        </span>
+                        {item.category && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-700 font-semibold">
+                            {item.category}
+                          </span>
+                        )}
+                        {item.severity != null && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getSeverityColor(item.severity)}`}>
+                            Severity {item.severity}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 line-clamp-1">
+                        {item.original_text}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {item.address || 'Location recorded'} • {formatDate(item.created_at)}
+                      </p>
+                    </div>
 
-        <Link
-          href="/dashboard/simulator"
-          className="group rounded-md border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-600 transition-colors"
-        >
-          <Calculator className="h-4 w-4 text-blue-700 mb-2" />
-          <h3 className="text-xs font-bold text-slate-900 mb-1">What-If Budget Simulator</h3>
-          <p className="text-[11px] text-slate-600">Model municipal expenditure scenarios and projected ROI</p>
-        </Link>
-      </div>
-
+                    <Link
+                      href={`/complaints/${item.id}`}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 whitespace-nowrap self-start sm:self-center"
+                    >
+                      <span>Inspect Case</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
+

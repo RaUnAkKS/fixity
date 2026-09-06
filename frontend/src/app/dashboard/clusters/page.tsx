@@ -1,159 +1,197 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Layers, ChevronDown, ChevronUp, Tag, Building2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { getSeverityColor, getSeverityLabel, formatDate } from '@/lib/utils';
+import { Layers, ChevronDown, ChevronUp, AlertCircle, Loader2, ArrowRight, Tag } from 'lucide-react';
 
-const MOCK_CLUSTERS = [
-  {
-    id: 'c1',
-    representative_text: 'Severe pothole issue on Main Road causing accidents',
-    category: 'Road Infrastructure',
-    complaint_count: 45,
-    avg_severity: 8.5,
-    complaints: [
-      { id: '1', title: 'Huge pothole near junction', severity: 9 },
-      { id: '2', title: 'Car damaged due to pothole', severity: 8 },
-      { id: '3', title: 'Multiple potholes on this stretch', severity: 8 }
-    ]
-  },
-  {
-    id: 'c2',
-    representative_text: 'No water supply for 3 days in Ward 7',
-    category: 'Water Supply',
-    complaint_count: 32,
-    avg_severity: 9.2,
-    complaints: [
-      { id: '4', title: 'Water missing since Monday', severity: 9 },
-      { id: '5', title: 'Contaminated water earlier, now none', severity: 10 },
-      { id: '6', title: 'Need tanker immediately', severity: 8 }
-    ]
-  },
-  {
-    id: 'c3',
-    representative_text: 'Streetlights not working on 5th Avenue',
-    category: 'Electricity',
-    complaint_count: 18,
-    avg_severity: 6.5,
-    complaints: [
-      { id: '7', title: 'Pitch dark at night', severity: 6 },
-      { id: '8', title: 'Safety issue due to no lights', severity: 7 },
-      { id: '9', title: 'Bulb fused on pole 42', severity: 5 }
-    ]
-  },
-  {
-    id: 'c4',
-    representative_text: 'Garbage not collected for a week',
-    category: 'Sanitation & Waste',
-    complaint_count: 27,
-    avg_severity: 7.8,
-    complaints: [
-      { id: '10', title: 'Overflowing bins', severity: 8 },
-      { id: '11', title: 'Foul smell in neighborhood', severity: 8 },
-      { id: '12', title: 'Stray dogs gathering', severity: 7 }
-    ]
-  },
-  {
-    id: 'c5',
-    representative_text: 'Blocked drainage overflowing onto road',
-    category: 'Drainage & Sewage',
-    complaint_count: 22,
-    avg_severity: 8.9,
-    complaints: [
-      { id: '13', title: 'Sewage water entering homes', severity: 10 },
-      { id: '14', title: 'Health hazard due to dirty water', severity: 9 },
-      { id: '15', title: 'Drain clogged with plastic', severity: 8 }
-    ]
-  },
-  {
-    id: 'c6',
-    representative_text: 'Illegal parking blocking pedestrian path',
-    category: 'Public Safety',
-    complaint_count: 15,
-    avg_severity: 5.5,
-    complaints: [
-      { id: '16', title: 'Cars parked on footpath', severity: 6 },
-      { id: '17', title: 'Cannot walk safely', severity: 5 },
-      { id: '18', title: 'Traffic jam due to parking', severity: 6 }
-    ]
-  }
-];
+interface ComplaintResponse {
+  id: string;
+  original_text: string;
+  category: string;
+  severity: number;
+  status: string;
+  created_at: string;
+  address?: string;
+}
+
+interface ClusterGroup {
+  category: string;
+  count: number;
+  avgSeverity: number;
+  topComplaints: ComplaintResponse[];
+}
 
 export default function ClustersPage() {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<ClusterGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
 
-  const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id);
+  useEffect(() => {
+    async function fetchClusters() {
+      try {
+        setLoading(true);
+        const data = await api.get<any>('/api/complaints?limit=100');
+        let items: ComplaintResponse[] = [];
+
+        
+        if (data && Array.isArray(data.items)) {
+          items = data.items;
+        } else if (Array.isArray(data)) {
+          items = data;
+        }
+
+        const groups = new Map<string, ComplaintResponse[]>();
+        
+        items.forEach(item => {
+          const cat = item.category || 'Uncategorized';
+          if (!groups.has(cat)) {
+            groups.set(cat, []);
+          }
+          groups.get(cat)!.push(item);
+        });
+
+        const clusterArray: ClusterGroup[] = Array.from(groups.entries()).map(([category, complaints]) => {
+          const totalSeverity = complaints.reduce((sum, c) => sum + (c.severity || 0), 0);
+          return {
+            category,
+            count: complaints.length,
+            avgSeverity: complaints.length > 0 ? totalSeverity / complaints.length : 0,
+            topComplaints: complaints.sort((a, b) => (b.severity || 0) - (a.severity || 0)).slice(0, 5)
+          };
+        });
+
+        clusterArray.sort((a, b) => b.count - a.count);
+        setClusters(clusterArray);
+        if (clusterArray.length > 0) {
+          setExpandedCluster(clusterArray[0].category);
+        }
+
+      } catch (err: any) {
+        console.error('Failed to fetch cluster data', err);
+        setError('Failed to load issue cluster analysis.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    fetchClusters();
+  }, []);
+
+  const toggleCluster = (category: string) => {
+    if (expandedCluster === category) {
+      setExpandedCluster(null);
+    } else {
+      setExpandedCluster(category);
+    }
   };
 
   return (
-    <div className="space-y-6 bg-slate-50">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white p-5 rounded-md border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 uppercase tracking-wider mb-1">
-          <Building2 className="h-4 w-4" /> Issue Aggregation Engine
-        </div>
-        <h1 className="text-xl font-bold text-slate-900">Municipal Complaint Clusters</h1>
-        <p className="text-xs text-slate-600 mt-0.5">
-          Grouped grievance clusters automatically merged based on geographic proximity and topic similarity.
+      <div className="border-b border-slate-200/80 pb-6">
+        <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+          <Layers className="h-6 w-6 text-blue-700" />
+          Recurring Issue Clusters
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          Algorithmic grouping of municipal incidents by frequency, root causes, and average hazard severity
         </p>
       </div>
 
-      <div className="space-y-3">
-        {MOCK_CLUSTERS.map((cluster) => (
-          <div key={cluster.id} className="bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden text-xs">
-            <div className="p-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                <div className="flex-1 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                      {cluster.category}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                      cluster.avg_severity >= 8 ? 'bg-red-50 text-red-700 border-red-200' :
-                      cluster.avg_severity >= 6 ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    }`}>
-                      Avg. Severity: {cluster.avg_severity.toFixed(1)}/10
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900">{cluster.representative_text}</h3>
-                </div>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 className="h-8 w-8 text-blue-700 animate-spin" />
+          <span className="text-xs text-slate-500">Computing incident cluster vectors...</span>
+        </div>
+      ) : error ? (
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-8 text-center space-y-4 max-w-md mx-auto shadow-xs">
+          <div className="h-12 w-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+            <AlertCircle className="h-6 w-6" />
+          </div>
+          <p className="text-xs text-slate-500">{error}</p>
+        </div>
+      ) : clusters.length === 0 ? (
+        <div className="text-center py-12 text-slate-500 bg-white rounded-2xl border border-slate-200/80 p-8 shadow-xs">
+          No recurring issue clusters identified in the current municipal dataset.
+        </div>
+      ) : (
+        <div className="space-y-3.5">
+          {clusters.map((cluster) => {
+            const isExpanded = expandedCluster === cluster.category;
+            const avg = Math.round(cluster.avgSeverity);
 
-                <div className="text-center px-4 py-1.5 bg-slate-100 rounded border border-slate-200 shrink-0">
-                  <div className="text-xl font-bold font-mono text-slate-900">{cluster.complaint_count}</div>
-                  <div className="text-[10px] font-semibold text-slate-600">Merged Files</div>
-                </div>
-              </div>
-              
-              <button 
-                onClick={() => toggleExpand(cluster.id)}
-                className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:underline"
-              >
-                {expandedId === cluster.id ? 'Collapse Complaint List' : 'View Merged Complaints'}
-                {expandedId === cluster.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-
-            {expandedId === cluster.id && (
-              <div className="bg-slate-50 p-4 border-t border-slate-200">
-                <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Individual Linked Grievances</h4>
-                <div className="space-y-2">
-                  {cluster.complaints.map(complaint => (
-                    <div key={complaint.id} className="bg-white p-3 rounded border border-slate-200 flex justify-between items-center text-xs">
-                      <span className="text-slate-800 font-medium">{complaint.title}</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                        complaint.severity >= 8 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+            return (
+              <div key={cluster.category} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden transition-all">
+                <div 
+                  className="p-5 flex items-center justify-between cursor-pointer hover:bg-slate-50/70 transition-colors"
+                  onClick={() => toggleCluster(cluster.category)}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2.5">
+                      <h2 className="text-sm font-bold text-slate-900">{cluster.category}</h2>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        avg > 65 ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                        avg > 35 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        'bg-emerald-50 text-emerald-700 border-emerald-200'
                       }`}>
-                        Severity: {complaint.severity}/10
+                        Avg Sev: {avg}/100 ({getSeverityLabel(avg)})
                       </span>
                     </div>
-                  ))}
+                    <p className="text-xs text-slate-500">
+                      {cluster.count} incident reports grouped in this department cluster
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {isExpanded ? (
+                      <ChevronUp className="h-5 w-5 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-5 w-5 text-slate-400" />
+                    )}
+                  </div>
                 </div>
+                
+                {isExpanded && (
+                  <div className="p-5 bg-slate-50/60 border-t border-slate-100 space-y-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Top Severity Complaints in this Cluster
+                    </span>
+                    <div className="grid gap-2.5">
+                      {cluster.topComplaints.map(complaint => (
+                        <Link
+                          key={complaint.id}
+                          href={`/complaints/${complaint.id}`}
+                          className="bg-white p-3.5 rounded-xl border border-slate-200/80 hover:border-blue-300 hover:shadow-xs transition-all flex items-center justify-between gap-3 group"
+                        >
+                          <div className="space-y-1 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[10px] text-slate-400">#{complaint.id.substring(0,8)}</span>
+                              <span className={`px-2 py-0.2 text-[10px] font-bold rounded-full border ${getSeverityColor(complaint.severity || 0)}`}>
+                                Severity {complaint.severity || 0}
+                              </span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-800 group-hover:text-blue-700 transition-colors line-clamp-1">
+                              {complaint.original_text}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] font-bold text-blue-700 shrink-0">
+                            <span>Inspect</span>
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
+

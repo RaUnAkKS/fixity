@@ -61,10 +61,10 @@ class AnalysisService:
                 validated = ComplaintAnalysisOutput(**result)
                 return validated.model_dump()
             except Exception as groq_err:
-                logger.error("All AI providers failed for text analysis: %s", groq_err)
-                raise RuntimeError(
-                    f"AI analysis unavailable (Gemini: {gemini_err}, Groq: {groq_err})"
-                ) from groq_err
+                logger.warning("All LLM providers failed for direct text (%s). Using heuristic.", groq_err)
+                heuristic_result = self._rule_based_analysis(text)
+                validated = ComplaintAnalysisOutput(**heuristic_result)
+                return validated.model_dump()
 
     async def analyze_complaint(self, complaint_id: UUID, db: Any) -> dict[str, Any]:
         """
@@ -78,13 +78,7 @@ class AnalysisService:
         Returns:
             Dictionary matching ComplaintAnalysisResponse schema
         """
-        # Dynamic import of models to avoid circular dependencies
-        try:
-            from app.models.complaint import Complaint
-            from app.models.analysis import ComplaintAnalysis
-        except ImportError:
-            # If Person A's models are structured slightly differently or named differently
-            from app.models import Complaint, ComplaintAnalysis  # type: ignore
+        from app.models.complaint import Complaint
 
         # 1. Fetch complaint
         complaint = await db.get(Complaint, complaint_id)
@@ -96,10 +90,9 @@ class AnalysisService:
         await db.commit()
         await db.refresh(complaint)
 
-        model_used = "gemini-2.0-flash"
         confidence = 0.85
 
-        # 3. Call AI with fallback
+        # 3. Call AI with fallback (Gemini -> Groq -> Heuristic)
         try:
             prompt = COMPLAINT_ANALYSIS_PROMPT.format(
                 complaint_text=complaint.original_text
@@ -110,7 +103,6 @@ class AnalysisService:
                 response_schema=COMPLAINT_ANALYSIS_SCHEMA,
             )
             validated = ComplaintAnalysisOutput(**result)
-            model_used = "gemini-2.0-flash"
         except Exception as gemini_err:
             logger.warning(
                 "Gemini analysis failed for complaint %s: %s. Trying Groq fallback.",
@@ -120,29 +112,20 @@ class AnalysisService:
             try:
                 result = await self._analyze_with_groq(complaint.original_text)
                 validated = ComplaintAnalysisOutput(**result)
-                model_used = "groq-llama-3.3-70b"
-                confidence = 0.75
+                confidence = 0.80
             except Exception as groq_err:
-                logger.error("All AI providers failed for complaint %s: %s", complaint_id, groq_err)
-                complaint.status = "submitted"  # Reset status so it can be retried
-                await db.commit()
-                raise RuntimeError("AI analysis temporarily unavailable") from groq_err
+                logger.warning(
+                    "All LLM providers failed for complaint %s (%s). Using heuristic fallback.",
+                    complaint_id,
+                    groq_err,
+                )
+                heuristic_result = self._rule_based_analysis(complaint.original_text)
+                validated = ComplaintAnalysisOutput(**heuristic_result)
+                confidence = 0.60
 
-        # 4. Create or update ComplaintAnalysis record
         analysis_data = validated.model_dump()
-        analysis = ComplaintAnalysis(
-            complaint_id=complaint_id,
-            model_used=model_used,
-            structured_output=analysis_data,
-            extracted_issues=validated.issues,
-            suggested_category=validated.category,
-            suggested_severity=validated.severity,
-            suggested_department=validated.suggested_department,
-            confidence=confidence,
-        )
-        db.add(analysis)
 
-        # 5. Update Complaint entity
+        # 4. Update Complaint entity directly
         complaint.translated_text = validated.translated_text
         complaint.detected_language = validated.detected_language
         complaint.category = validated.category
@@ -156,7 +139,6 @@ class AnalysisService:
         await db.refresh(complaint)
 
         return {
-            "id": getattr(analysis, "id", None),
             "complaint_id": complaint_id,
             "detected_language": validated.detected_language,
             "translated_text": validated.translated_text,
@@ -171,7 +153,7 @@ class AnalysisService:
         }
 
     async def _analyze_with_groq(self, text: str) -> dict[str, Any]:
-        """Fallback analysis using Groq Llama 3.3 70B."""
+        """Fallback analysis using Groq."""
         prompt = (
             f"{COMPLAINT_ANALYSIS_PROMPT.format(complaint_text=text)}\n\n"
             f"You MUST return ONLY a valid JSON object matching this schema:\n"
@@ -182,3 +164,66 @@ class AnalysisService:
             messages=messages,
             system_prompt="You are a civic complaint analysis engine that outputs only valid JSON.",
         )
+
+    def _rule_based_analysis(self, text: str) -> dict[str, Any]:
+        """Deterministic keyword-based heuristic fallback if all remote AI APIs are offline."""
+        lower = text.lower()
+
+        category = "Road Infrastructure"
+        subcategory = "Pothole / Road Surface"
+        suggested_dept = "Public Works Department"
+        severity = 55
+
+        if any(w in lower for w in ["water", "leak", "pipe", "tank", "supply", "drinking"]):
+            category = "Water Supply"
+            subcategory = "Pipeline Leakage"
+            suggested_dept = "Water Supply & Sewerage Board"
+            severity = 65
+        elif any(w in lower for w in ["drain", "sewage", "gutter", "overflow", "manhole", "clog"]):
+            category = "Drainage & Sewage"
+            subcategory = "Drainage Blockage"
+            suggested_dept = "Drainage & Sewage Department"
+            severity = 70
+        elif any(w in lower for w in ["garbage", "trash", "waste", "dump", "clean", "debris", "smell", "sanitation"]):
+            category = "Sanitation & Waste"
+            subcategory = "Garbage Collection"
+            suggested_dept = "Solid Waste Management"
+            severity = 50
+        elif any(w in lower for w in ["light", "pole", "wire", "power", "electric", "dark", "transformer"]):
+            category = "Electricity"
+            subcategory = "Streetlight / Power Issue"
+            suggested_dept = "Electricity Board"
+            severity = 60
+        elif any(w in lower for w in ["pothole", "road", "cavity", "asphalt", "traffic", "footpath", "bridge"]):
+            category = "Road Infrastructure"
+            subcategory = "Road Repair & Potholes"
+            suggested_dept = "Public Works Department"
+            severity = 65
+        elif any(w in lower for w in ["hospital", "clinic", "health", "doctor", "medicine"]):
+            category = "Healthcare"
+            subcategory = "Public Health"
+            suggested_dept = "Health Department"
+            severity = 75
+        elif any(w in lower for w in ["bus", "transport", "auto", "stop", "station"]):
+            category = "Public Transport"
+            subcategory = "Transit Facilities"
+            suggested_dept = "Transport Department"
+            severity = 45
+
+        if any(w in lower for w in ["severe", "danger", "hazard", "fatal", "accident", "emergency", "urgent", "critical"]):
+            severity = min(100, severity + 20)
+
+        issues = [f"{category} issue reported", subcategory]
+
+        return {
+            "detected_language": "en",
+            "translated_text": text,
+            "category": category,
+            "subcategory": subcategory,
+            "severity": severity,
+            "issues": issues,
+            "possible_related_issue": f"Recurring {category.lower()} in area",
+            "suggested_department": suggested_dept,
+            "summary": text[:200] if len(text) > 200 else text,
+        }
+

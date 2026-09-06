@@ -33,11 +33,12 @@ class GeminiClient:
         if not settings.GEMINI_API_KEY:
             logger.warning("GEMINI_API_KEY not set - Gemini calls will fail")
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        # Primary models with fallback support
-        self.primary_model_name = "gemini-2.0-flash"
-        self.fallback_model_name = "gemini-1.5-flash"
+        # Primary high-speed model with fallback support
+        self.primary_model_name = "gemini-3.5-flash-lite"
+        self.fallback_model_name = "gemini-3.6-flash"
         self.flash_model = genai.GenerativeModel(self.primary_model_name)
-        self.flash25_model = genai.GenerativeModel("gemini-2.5-flash")
+        self.flash25_model = genai.GenerativeModel("gemini-3.5-flash-lite")
+
 
     # ------------------------------------------------------------------
     # Public API
@@ -95,32 +96,38 @@ class GeminiClient:
                     return self._parse_json_response(response)
                 raise
 
+        return await self._call_with_retry(_call, max_retries=2)
+
     async def analyze_image(
         self,
         image_bytes: bytes,
         mime_type: str,
         prompt: str,
+        response_schema: dict | None = None,
     ) -> dict:
         """
-        Send image + text prompt to Gemini 2.0 Flash (multimodal).
+        Send image + text prompt to Gemini (multimodal).
 
         Args:
-            image_bytes: Raw bytes of the image file.
-            mime_type:   MIME type string (e.g. "image/jpeg", "image/png").
-            prompt:      Analysis prompt (should describe what to look for).
+            image_bytes:     Raw bytes of the image file.
+            mime_type:       MIME type string (e.g. "image/jpeg", "image/png").
+            prompt:          Analysis prompt (should describe what to look for).
+            response_schema: Optional JSON Schema dict describing expected output.
 
         Returns:
             Structured JSON analysis dict.
         """
-        from google.generativeai.types import content_types
-
         image_part = {"mime_type": mime_type, "data": image_bytes}
 
         async def _call():
-            generation_config = GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-            )
+            config_kwargs = {
+                "response_mime_type": "application/json",
+                "temperature": 0.2,
+            }
+            if response_schema:
+                config_kwargs["response_schema"] = response_schema
+
+            generation_config = GenerationConfig(**config_kwargs)
             response = await asyncio.to_thread(
                 self.flash_model.generate_content,
                 [prompt, image_part],
@@ -129,6 +136,7 @@ class GeminiClient:
             return self._parse_json_response(response)
 
         return await self._call_with_retry(_call, max_retries=2)
+
 
     async def chat_with_tools(
         self,
@@ -162,7 +170,7 @@ class GeminiClient:
 
         # Build the model with tools and system instruction
         model = genai.GenerativeModel(
-            "gemini-2.5-flash",
+            "gemini-3.5-flash-lite",
             tools=[{"function_declarations": function_declarations}],
             system_instruction=system_prompt,
         )
@@ -213,8 +221,8 @@ class GeminiClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _call_with_retry(self, func, max_retries: int = 2) -> Any:
-        """Retry wrapper with exponential backoff."""
+    async def _call_with_retry(self, func, max_retries: int = 1) -> Any:
+        """Retry wrapper with exponential backoff and fast failover on quota/auth errors."""
         for attempt in range(max_retries + 1):
             try:
                 result = await func()
@@ -223,15 +231,18 @@ class GeminiClient:
                 )
                 return result
             except Exception as e:
-                logger.error(
+                err_msg = str(e).lower()
+                logger.warning(
                     "Gemini API error (attempt %d/%d): %s",
                     attempt + 1,
                     max_retries + 1,
                     e,
                 )
+                # Fail over immediately to fallback provider on quota, rate limit, or model not found
+                if "429" in err_msg or "quota" in err_msg or "rate" in err_msg or "404" in err_msg or "not found" in err_msg:
+                    raise
                 if attempt < max_retries:
-                    wait = 1 * (attempt + 1)  # 1s, 2s backoff
-                    await asyncio.sleep(wait)
+                    await asyncio.sleep(0.5)
                 else:
                     raise
 

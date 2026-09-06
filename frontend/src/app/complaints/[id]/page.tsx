@@ -1,335 +1,654 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowLeft, MapPin, Calendar, Clock, Image as ImageIcon, 
-  MessageSquare, AlertTriangle, ShieldCheck, Tag, Loader2,
-  CheckCircle2, Info, Building2, CheckSquare
+import dynamic from 'next/dynamic';
+import { api, API_BASE_URL } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { getStatusColor, getStatusLabel, getSeverityLabel, getSeverityColor, getCategoryLabel, formatDate, formatDateTime } from '@/lib/utils';
+import { useParams } from 'next/navigation';
+import {
+  ArrowLeft,
+  Calendar,
+  MapPin,
+  Tag,
+  AlertCircle,
+  CheckCircle2,
+  Sparkles,
+  Building2,
+  Image as ImageIcon,
+  Clock,
+  ShieldCheck,
+  Check,
+  ExternalLink,
+  Loader2,
+  Star,
+  Users,
+  AlertTriangle,
 } from 'lucide-react';
-import { 
-  getStatusColor, 
-  getStatusLabel, 
-  getSeverityLabel, 
-  formatDate 
-} from '@/lib/utils';
+import { ConfirmationResponse } from '@/lib/types';
+import { useLanguage } from '@/context/LanguageContext';
 
-// Types
-interface TimelineEvent {
-  id: string;
-  status: string;
-  timestamp: string;
-  description: string;
-  actor?: string;
-}
-
-interface ComplaintDetail {
-  id: string;
-  text: string;
-  translatedText?: string;
-  originalLanguage?: string;
-  category: string;
-  subcategory: string;
-  severity: number;
-  status: string;
-  createdAt: string;
-  latitude: number;
-  longitude: number;
-  address: string;
-  department: string;
-  issues: string[];
-  confidenceScore: number;
-  clusterId?: string;
-  clusterSize?: number;
-  evidence: string[];
-  timeline: TimelineEvent[];
-}
-
-const MOCK_DETAIL: ComplaintDetail = {
-  id: 'FX-1001',
-  text: 'यहां मुख्य सड़क पर एक बहुत बड़ा गड्ढा है जो 2 हफ्ते से है और रोज ट्रैफिक जाम करता है। कृपया इसे जल्द ठीक करें।',
-  translatedText: 'There is a huge pothole on the main road here which has been there for 2 weeks and causes traffic jam everyday. Please fix it soon.',
-  originalLanguage: 'Hindi (hi)',
-  category: 'Road Infrastructure',
-  subcategory: 'Pothole & Asphalt Repair',
-  severity: 78,
-  status: 'in_progress',
-  createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-  latitude: 12.9716,
-  longitude: 77.5946,
-  address: 'MG Road, Near Central Market & Metro Station, Ward 12',
-  department: 'Public Works Department (PWD)',
-  issues: ['Safety Hazard', 'Traffic Congestion', 'Infrastructure Damage'],
-  confidenceScore: 0.94,
-  clusterId: 'CLS-592',
-  clusterSize: 4,
-  evidence: ['/mock-evidence-1.jpg', '/mock-evidence-2.jpg'],
-  timeline: [
-    {
-      id: 'evt-1',
-      status: 'submitted',
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-      description: 'Complaint registered by citizen via Fixity portal.',
-    },
-    {
-      id: 'evt-2',
-      status: 'analyzed',
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000 + 5000).toISOString(),
-      description: 'Automated classification completed. Categorized under Road Infrastructure with 78/100 severity.',
-      actor: 'Fixity Classifier'
-    },
-    {
-      id: 'evt-3',
-      status: 'assigned',
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      description: 'Dispatched to Public Works Department (Ward 12 Engineering Division).',
-      actor: 'Auto-Dispatcher'
-    },
-    {
-      id: 'evt-4',
-      status: 'in_progress',
-      timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-      description: 'Field inspection completed by Municipal Engineer. Resurfacing scheduled.',
-      actor: 'Engineer R. Kumar (PWD)'
-    }
-  ]
-};
+const ComplaintMapCard = dynamic(
+  () => import('@/components/map/ComplaintMapCard'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-72 w-full rounded-2xl bg-slate-100 border border-slate-200/80 animate-pulse flex flex-col items-center justify-center gap-2 text-slate-400">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <span className="text-xs">Loading incident map and ward coordinates...</span>
+      </div>
+    ),
+  }
+);
 
 export default function ComplaintDetailPage() {
   const params = useParams();
-  const router = useRouter();
-  const [complaint, setComplaint] = useState<ComplaintDetail | null>(null);
+  const id = params.id as string;
+  const { user, isOfficer } = useAuth();
+  const { language, t } = useLanguage();
+  const [complaint, setComplaint] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [updating, setUpdating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmMsg, setConfirmMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  async function handleConfirm() {
+    if (!user) {
+      setConfirmMsg({ type: 'error', text: 'Please sign in to confirm this civic issue.' });
+      return;
+    }
+    try {
+      setConfirming(true);
+      setConfirmMsg(null);
+      const res = await api.post<ConfirmationResponse>(`/api/complaints/${id}/confirm`);
+      setComplaint((prev: any) => ({
+        ...prev,
+        confirmation_count: res.confirmation_count,
+        community_signal: res.community_signal,
+        community_signal_score: res.community_signal_score,
+        is_community_critical: res.is_community_critical,
+        user_has_confirmed: true,
+      }));
+      setConfirmMsg({
+        type: 'success',
+        text: 'Thank you. Your confirmation increases priority for municipal officers (+2 Civic Reputation).',
+      });
+    } catch (err: any) {
+      setConfirmMsg({
+        type: 'error',
+        text: err.message || 'Failed to confirm issue. You may have already confirmed it.',
+      });
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function handleStatusUpdate(newStatus: string) {
+    try {
+      setUpdating(true);
+      setStatusMsg(null);
+      const updated = await api.patch<any>(`/api/complaints/${id}/status`, { status: newStatus });
+      setComplaint((prev: any) => ({ ...prev, status: updated.status || newStatus }));
+      setStatusMsg({
+        type: 'success',
+        text: `Case successfully marked as ${getStatusLabel(newStatus)}`,
+      });
+    } catch (err: any) {
+      const isRoleError = err.message && err.message.toLowerCase().includes('requires one of roles');
+      setStatusMsg({
+        type: 'error',
+        text: isRoleError
+          ? 'Officer Privileges Required: Please ensure you are logged in with an Officer or Admin account.'
+          : (err.message || 'Failed to update status'),
+      });
+    } finally {
+      setUpdating(false);
+    }
+  }
 
   useEffect(() => {
-    const fetchDetail = () => {
-      setTimeout(() => {
-        setComplaint({ ...MOCK_DETAIL, id: (params.id as string) || 'FX-1001' });
+    async function fetchDetail() {
+      try {
+        const res = await api.get<any>(`/api/complaints/${id}`);
+        setComplaint(res);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load complaint details');
+      } finally {
         setLoading(false);
-      }, 400);
-    };
-    fetchDetail();
-  }, [params.id]);
+      }
+    }
+    if (id) {
+      fetchDetail();
+    }
+  }, [id]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-4xl mx-auto px-4">
-        <Loader2 className="w-8 h-8 text-blue-700 animate-spin mb-3" />
-        <p className="text-xs text-slate-600">Retrieving official case file record...</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+        <Loader2 className="h-8 w-8 text-blue-700 animate-spin" />
+        <span className="text-xs text-slate-500">Retrieving official case record...</span>
       </div>
     );
   }
 
-  if (!complaint) return <div className="text-center py-12 text-xs text-slate-600">Municipal Complaint File Not Found</div>;
+  if (error || !complaint) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12 space-y-4">
+        <Link href="/complaints" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700">
+          <ArrowLeft className="h-4 w-4" /> Back to Complaints
+        </Link>
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-8 text-center space-y-3 shadow-xs">
+          <AlertCircle className="h-8 w-8 text-rose-600 mx-auto" />
+          <h2 className="text-base font-bold text-slate-900">Case Record Not Found</h2>
+          <p className="text-xs text-slate-500">{error || 'The requested complaint does not exist or has been archived.'}</p>
+        </div>
+      </div>
+    );
+  }
 
-  const sev = complaint.severity ?? 0;
-  const severityBadgeColor = sev <= 30 ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : sev <= 60 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-red-50 text-red-800 border-red-300';
+  const { original_text, translated_text, category, subcategory, severity, status, address, created_at, ai_analysis, evidence } = complaint;
+
+  // Lifecycle steps for timeline
+  const steps = [
+    { key: 'submitted', label: language === 'hi' ? 'दर्ज (Submitted)' : 'Submitted' },
+    { key: 'analyzed', label: language === 'hi' ? 'प्राथमिकता (Triage)' : 'Triage & Priority' },
+    { key: 'assigned', label: language === 'hi' ? 'आवंटित (Assigned)' : 'Department Assigned' },
+    { key: 'in_progress', label: language === 'hi' ? 'प्रगति पर (In Progress)' : 'Work In Progress' },
+    { key: 'resolved', label: language === 'hi' ? 'समाधान (Resolved)' : 'Resolved' },
+    { key: 'verified', label: language === 'hi' ? 'सत्यापित (Verified)' : 'Citizen Verified' },
+  ];
+
+  const statusOrder = ['submitted', 'analyzing', 'analyzed', 'assigned', 'in_progress', 'resolved', 'verified'];
+  const currentIndex = statusOrder.indexOf(status);
 
   return (
     <div className="bg-slate-50 min-h-screen py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6">
         
-        {/* Navigation */}
-        <button 
-          onClick={() => router.back()}
-          className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-4 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1" />
-          Back to Grievance Registry
-        </button>
-
-        {/* Case File Header */}
-        <div className="bg-white rounded-md border border-slate-200 p-6 mb-6 shadow-sm">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 pb-4 mb-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
-                  CASE FILE #{complaint.id}
-                </span>
-                <span className="text-xs text-slate-500 font-medium">| Official Municipal Record</span>
-              </div>
-              <h1 className="text-xl font-bold text-slate-900">{complaint.category}</h1>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded text-xs font-bold border ${getStatusColor(complaint.status)}`}>
-                {getStatusLabel(complaint.status)}
-              </span>
-              <span className={`px-3 py-1 rounded text-xs font-bold border ${severityBadgeColor}`}>
-                Severity: {getSeverityLabel(complaint.severity)} ({complaint.severity}/100)
-              </span>
-            </div>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-3 text-xs text-slate-600">
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-              <span>Registration Date: <strong>{formatDate(complaint.createdAt)}</strong></span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-slate-400" />
-              <span>Location: <strong>{complaint.address}</strong></span>
-            </div>
+        {/* Top Navigation & Case Tag */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Link
+            href="/complaints"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> {language === 'hi' ? 'वापस मेरी शिकायतें (Back)' : 'Back to My Complaints'}
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-slate-400">ID: {id}</span>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(status)}`}>
+              {getStatusLabel(status, language)}
+            </span>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
-          {/* Main Details (2 Cols) */}
-          <div className="md:col-span-2 space-y-6">
-            
-            {/* Statement of Complaint */}
-            <div className="bg-white rounded-md border border-slate-200 p-5 shadow-sm">
-              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                <MessageSquare className="w-4 h-4 text-blue-700" />
-                Citizen Grievance Statement
-              </h2>
-              
-              {complaint.translatedText ? (
-                <div className="space-y-3 text-xs">
-                  <div className="bg-blue-50/70 border border-blue-200 rounded p-3 text-slate-900">
-                    <span className="text-[10px] font-bold text-blue-800 uppercase block mb-1">English Translation</span>
-                    <p className="leading-relaxed">{complaint.translatedText}</p>
+        {/* Status Stepper Progression Bar */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs overflow-x-auto">
+          <div className="flex items-center justify-between min-w-[500px]">
+            {steps.map((step, idx) => {
+              const isPast = statusOrder.indexOf(step.key) <= currentIndex && currentIndex !== -1;
+              const isCurrent = step.key === status || (step.key === 'analyzed' && status === 'analyzing');
+
+              return (
+                <div key={step.key} className="flex flex-col items-center relative flex-1 text-center">
+                  {idx !== 0 && (
+                    <div
+                      className={`absolute top-3.5 right-[50%] left-[-50%] h-0.5 -z-0 transition-colors ${
+                        isPast ? 'bg-blue-600' : 'bg-slate-200'
+                      }`}
+                    />
+                  )}
+                  <div
+                    className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold z-10 transition-all ${
+                      isPast
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : isCurrent
+                        ? 'bg-blue-50 text-blue-700 border-2 border-blue-600 animate-pulse'
+                        : 'bg-slate-100 text-slate-400'
+                    }`}
+                  >
+                    {isPast ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : idx + 1}
                   </div>
-                  <div className="bg-slate-50 border border-slate-200 rounded p-3 text-slate-700">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Original Statement ({complaint.originalLanguage})</span>
-                    <p className="leading-relaxed">{complaint.text}</p>
-                  </div>
+                  <span className={`text-[10px] font-bold mt-1.5 ${isCurrent ? 'text-blue-700' : isPast ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {step.label}
+                  </span>
                 </div>
-              ) : (
-                <div className="bg-slate-50 border border-slate-200 rounded p-3 text-xs text-slate-900 leading-relaxed">
-                  {complaint.text}
-                </div>
-              )}
-            </div>
-
-            {/* Department Routing & Classification */}
-            <div className="bg-white rounded-md border border-slate-200 p-5 shadow-sm">
-              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                <Building2 className="w-4 h-4 text-blue-700" />
-                Department Assignment & Assessment
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
-                <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-0.5">Assigned Department</span>
-                  <span className="font-bold text-slate-900">{complaint.department}</span>
-                </div>
-                <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-0.5">Subcategory</span>
-                  <span className="font-bold text-slate-900">{complaint.subcategory}</span>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <div className="flex justify-between items-center text-xs mb-1">
-                  <span className="font-semibold text-slate-800">Calculated Severity Index</span>
-                  <span className="font-bold text-slate-900">{complaint.severity}/100</span>
-                </div>
-                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className="h-full bg-blue-700"
-                    style={{ width: `${complaint.severity}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="text-xs">
-                <span className="font-semibold text-slate-800 block mb-1.5">Identified Issue Markers</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {complaint.issues.map(issue => (
-                    <span key={issue} className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-300">
-                      {issue}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Evidence Photos */}
-            <div className="bg-white rounded-md border border-slate-200 p-5 shadow-sm">
-              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-3 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4 text-blue-700" />
-                Attached Evidence Files
-              </h2>
-              {complaint.evidence && complaint.evidence.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {complaint.evidence.map((ev, i) => (
-                    <div key={i} className="aspect-video bg-slate-100 rounded border border-slate-200 flex items-center justify-center text-slate-400 text-xs font-medium">
-                      <span>Photo Evidence #{i+1}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-slate-500 text-xs">No photographic evidence attached.</p>
-              )}
-            </div>
-
-            {/* Verification Link */}
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-              <div>
-                <span className="font-bold text-blue-900 block">Citizen Resolution Verification</span>
-                <span className="text-blue-700">Once repairs are complete, verify the work to confirm case resolution.</span>
-              </div>
-              <Link
-                href={`/complaints/${complaint.id}/verify`}
-                className="inline-flex items-center gap-1 px-4 py-2 bg-blue-700 text-white rounded font-bold text-xs hover:bg-blue-800 transition-colors shrink-0"
-              >
-                <CheckSquare className="h-3.5 w-3.5" />
-                Verify Resolution
-              </Link>
-            </div>
-
+              );
+            })}
           </div>
+        </div>
 
-          {/* Timeline Sidebar (1 Col) */}
-          <div className="space-y-6">
-            
-            {/* Cluster Alert */}
-            {complaint.clusterId && (
-              <div className="bg-amber-50 rounded-md border border-amber-300 p-4 text-xs">
-                <h3 className="font-bold text-amber-900 mb-1 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-amber-700" />
-                  Cluster Detected (#{complaint.clusterId})
-                </h3>
-                <p className="text-amber-800 leading-relaxed">
-                  Part of a cluster with <strong>{complaint.clusterSize}</strong> related complaints in Ward 12. Combined for department action.
+        {/* Main Case File Details */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 shadow-xs space-y-6">
+          
+          {/* Issue Header & Description */}
+          <div className="space-y-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Grievance Description
+            </span>
+            <p className="text-base text-slate-900 font-medium whitespace-pre-wrap leading-relaxed">
+              {original_text}
+            </p>
+
+            {/* Intelligent Duplicate Merging Notice */}
+            {complaint.parent_issue_id && (
+              <div className="bg-amber-50/80 border border-amber-200 p-4 rounded-xl space-y-1.5 text-xs text-amber-900">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5 text-amber-800 uppercase tracking-wider text-[11px]">
+                    <Users className="h-3.5 w-3.5 text-amber-600" /> Linked to Active Civic Issue
+                  </span>
+                  <Link
+                    href={`/complaints/${complaint.parent_issue_id}`}
+                    className="font-bold text-blue-700 hover:underline inline-flex items-center gap-1"
+                  >
+                    View Primary Issue #{complaint.parent_issue_id.substring(0, 8)} &rarr;
+                  </Link>
+                </div>
+                <p className="text-amber-800 leading-relaxed text-[11px]">
+                  This report has been intelligently merged with an ongoing neighborhood ticket at this location. Your report boosts neighborhood priority without fragmenting municipal crew dispatch.
                 </p>
               </div>
             )}
 
-            {/* Case History Timeline */}
-            <div className="bg-white rounded-md border border-slate-200 p-5 shadow-sm">
-              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-4 pb-2 border-b border-slate-100 flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-blue-700" />
-                Case History & Timeline
-              </h2>
-              
-              <div className="relative border-l-2 border-slate-200 ml-2 space-y-4 text-xs">
-                {complaint.timeline.map((event) => (
-                  <div key={event.id} className="relative pl-5">
-                    <span className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-blue-700 ring-4 ring-white" />
-                    
-                    <div className="font-bold text-slate-900">
-                      {getStatusLabel(event.status)}
-                    </div>
-                    <div className="text-[10px] text-slate-500 mb-1">
-                      {formatDate(event.timestamp)}
-                    </div>
-                    <p className="text-slate-700 bg-slate-50 rounded p-2 border border-slate-200 text-[11px] leading-normal">
-                      {event.description}
-                    </p>
-                    {event.actor && (
-                      <span className="text-[10px] text-slate-500 block mt-0.5">
-                        Officer/System: {event.actor}
+            {complaint.merged_reports_count > 0 && (
+              <div className="bg-blue-50/80 border border-blue-200 p-3.5 rounded-xl flex items-center justify-between text-xs text-blue-900">
+                <span className="font-bold flex items-center gap-2">
+                  <Users className="h-4 w-4 text-blue-700" />
+                  {complaint.merged_reports_count} Additional Citizen {complaint.merged_reports_count === 1 ? 'Report' : 'Reports'} Linked
+                </span>
+                <span className="text-[11px] text-blue-700 font-medium">
+                  Neighborhood Duplicate Merging Active
+                </span>
+              </div>
+            )}
+
+            {translated_text && translated_text !== original_text && (
+              <div className="bg-blue-50/60 border border-blue-100 p-4 rounded-xl space-y-1">
+                <span className="text-[11px] font-bold uppercase text-blue-700 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> Standard English Translation
+                </span>
+                <p className="text-xs text-slate-700 leading-relaxed">{translated_text}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Key Attributes Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-slate-100">
+            <div className="space-y-1">
+              <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5 text-slate-400" /> Location
+              </span>
+              <p className="text-xs font-bold text-slate-800 truncate" title={address || 'Recorded Coordinates'}>
+                {address || 'Recorded Coordinates'}
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5 text-slate-400" /> Date Reported
+              </span>
+              <p className="text-xs font-bold text-slate-800">{formatDate(created_at)}</p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
+                <Tag className="h-3.5 w-3.5 text-slate-400" /> {language === 'hi' ? 'श्रेणी' : 'Category'}
+              </span>
+              <p className="text-xs font-bold text-slate-800 truncate">
+                {category ? getCategoryLabel(category, language) : (language === 'hi' ? 'वर्गीकरण प्रतीक्षारत' : 'Auto-Triage Pending')}
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs text-slate-400 font-medium flex items-center gap-1">
+                <AlertCircle className="h-3.5 w-3.5 text-slate-400" /> {language === 'hi' ? 'गंभीरता' : 'Severity Index'}
+              </span>
+              <p className="text-xs font-bold text-slate-800">
+                {severity ? `${severity}/100 (${getSeverityLabel(severity, language)})` : (language === 'hi' ? 'स्कोर प्रतीक्षारत' : 'Pending Score')}
+              </p>
+            </div>
+          </div>
+
+          {/* Community Impact & Citizen Confirmation Card */}
+          <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-blue-700" />
+                  Community Impact &amp; Confirmation Signal
+                </span>
+                <p className="text-xs text-slate-500">
+                  Real neighborhood verification prevents duplicate tickets and informs municipal dispatch priority.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                    complaint.community_signal === 'High'
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : complaint.community_signal === 'Elevated'
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : complaint.community_signal === 'Moderate'
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  Signal: {complaint.community_signal || 'Low'} ({complaint.community_signal_score || 1}/10)
+                </span>
+              </div>
+            </div>
+
+            {complaint.is_community_critical && (
+              <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center gap-2.5 text-xs text-rose-800 font-medium">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>
+                  <strong>Community-Critical Priority:</strong> High severity combined with multiple citizen confirmations places this at urgent municipal dispatch.
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/60">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-blue-100/70 flex items-center justify-center text-blue-700 font-bold text-sm">
+                  {complaint.confirmation_count || 0}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-800">
+                    {complaint.confirmation_count === 1
+                      ? '1 citizen has confirmed this issue'
+                      : `${complaint.confirmation_count || 0} citizens have confirmed this issue`}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {complaint.confirmation_count > 0 ? 'Verified locality impact' : 'Be the first neighbor to confirm'}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                {isOfficer ? (
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    <ShieldCheck className="h-3.5 w-3.5 text-blue-700" />
+                    {language === 'hi' ? 'अधिकारी समीक्षा दृश्य' : 'Officer Triage View'}
+                  </span>
+                ) : complaint.user_has_confirmed ? (
+                  <div className="flex items-center gap-2">
+                    {(complaint.is_author || (user && user.id === complaint.citizen_id)) && (
+                      <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+                        {language === 'hi' ? 'आपकी रिपोर्ट' : 'Your Report'}
                       </span>
+                    )}
+                    <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      {language === 'hi' ? '✓ आपने समर्थन दिया है' : 'You confirmed this issue'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {(complaint.is_author || (user && user.id === complaint.citizen_id)) && (
+                      <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+                        {language === 'hi' ? 'आपकी रिपोर्ट' : 'Your Report'}
+                      </span>
+                    )}
+                    <button
+                      onClick={handleConfirm}
+                      disabled={confirming}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    >
+                      {confirming ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Users className="h-3.5 w-3.5" />
+                      )}
+                      {language === 'hi' ? 'मैं भी प्रभावित हूँ (+2 अंक)' : "I'm affected too (+2 Rep)"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {confirmMsg && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium border ${
+                  confirmMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}
+              >
+                {confirmMsg.text}
+              </div>
+            )}
+          </div>
+
+          {/* Geospatial Site Map Section matching media_1788672295154.png */}
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 text-blue-600" />
+                Incident Site &amp; Ward Geospatial Map
+              </span>
+              <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                {(complaint.latitude ?? 28.6475).toFixed(4)}, {(complaint.longitude ?? 77.3150).toFixed(4)}
+              </span>
+            </div>
+            <ComplaintMapCard
+              complaintId={id}
+              latitude={complaint.latitude ?? 28.6475}
+              longitude={complaint.longitude ?? 77.3150}
+              address={complaint.address || 'Near Metro Pillar 148, Outer Ring Road Link, Anand Vihar'}
+              category={category}
+              severity={severity}
+            />
+          </div>
+
+          {/* AI Analysis Diagnosis Card */}
+          {ai_analysis && (
+            <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                  AI Case Triage &amp; Assessment
+                </h3>
+                {(ai_analysis.suggested_department || ai_analysis.department) && (
+                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                    Dept: {ai_analysis.suggested_department || ai_analysis.department}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                <strong className="text-slate-800">Summary:</strong> {ai_analysis.summary || complaint.ai_description || 'Analysis completed.'}
+              </p>
+
+              {ai_analysis.issues && ai_analysis.issues.length > 0 && (
+                <div className="pt-1">
+                  <span className="text-[11px] font-bold text-slate-700 block mb-1">Key Diagnostic Points:</span>
+                  <ul className="grid sm:grid-cols-2 gap-1.5">
+                    {ai_analysis.issues.map((issue: string, i: number) => (
+                      <li key={i} className="text-xs text-slate-600 flex items-center gap-1.5 bg-white p-2 rounded-lg border border-slate-200/60">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 shrink-0" />
+                        <span className="truncate">{issue}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Photo Evidence Gallery */}
+          {evidence && evidence.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5 text-slate-400" />
+                Attached Evidence Photos
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {evidence.map((ev: any) => (
+                  <div key={ev.id} className="aspect-video bg-slate-100 rounded-xl overflow-hidden border border-slate-200/80 shadow-xs relative group">
+                    {ev.file_url ? (
+                      <img
+                        src={`${API_BASE_URL}${ev.file_url}`}
+                        alt="Evidence"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">No media preview</div>
                     )}
                   </div>
                 ))}
               </div>
             </div>
+          )}
 
+          {/* Workflow & Status Actions Section */}
+          <div className="border-t border-slate-100 pt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                {isOfficer ? 'Officer Resolution Actions' : 'Resolution Progress & Tracking'}
+              </h3>
+              {statusMsg && (
+                <span
+                  className={`text-xs font-bold px-3 py-1 rounded-full border flex items-center gap-1.5 ${
+                    statusMsg.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  {statusMsg.type === 'success' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 text-rose-600" />
+                  )}
+                  {statusMsg.text}
+                </span>
+              )}
+            </div>
+
+            {/* If Officer / Admin: show department transition actions */}
+            {isOfficer && (
+              <div className="flex flex-wrap items-center gap-3">
+                {status !== 'assigned' && status !== 'in_progress' && status !== 'resolved' && status !== 'verified' && (
+                  <button
+                    onClick={() => handleStatusUpdate('assigned')}
+                    disabled={updating}
+                    className="px-4 py-2.5 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {updating ? 'Updating...' : 'Assign to Department'}
+                  </button>
+                )}
+
+                {status !== 'in_progress' && status !== 'resolved' && status !== 'verified' && (
+                  <button
+                    onClick={() => handleStatusUpdate('in_progress')}
+                    disabled={updating}
+                    className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {updating ? 'Updating...' : 'Start Maintenance Work'}
+                  </button>
+                )}
+
+                {status !== 'resolved' && status !== 'verified' && (
+                  <button
+                    onClick={() => handleStatusUpdate('resolved')}
+                    disabled={updating}
+                    className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    {updating ? 'Updating...' : 'Mark as Resolved'}
+                  </button>
+                )}
+
+                {status === 'resolved' && (
+                  <div className="w-full bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 text-xs text-emerald-800 font-medium flex items-center justify-between">
+                    <span>Issue marked resolved by department. Awaiting citizen verification audit.</span>
+                    <button
+                      onClick={() => handleStatusUpdate('in_progress')}
+                      disabled={updating}
+                      className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Reopen Work
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Citizen View: Status explanation banner for active states */}
+            {!isOfficer && (
+              <div>
+                {status === 'submitted' && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center gap-2.5">
+                    <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span>Your grievance has been submitted into the municipal queue. AI triage and department routing are underway.</span>
+                  </div>
+                )}
+                {(status === 'analyzing' || status === 'analyzed') && (
+                  <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-100 text-xs text-blue-800 flex items-center gap-2.5">
+                    <Sparkles className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span>Issue has been classified and prioritized by AI triage. Awaiting ward department dispatch.</span>
+                  </div>
+                )}
+                {status === 'assigned' && (
+                  <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-100 text-xs text-purple-800 flex items-center gap-2.5">
+                    <Building2 className="h-4 w-4 text-purple-600 shrink-0" />
+                    <span>Assigned to <strong>{ai_analysis?.suggested_department || category || 'Municipal Department'}</strong> for field maintenance dispatch.</span>
+                  </div>
+                )}
+                {status === 'in_progress' && (
+                  <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-center gap-2.5">
+                    <Clock className="h-4 w-4 text-amber-600 shrink-0 animate-spin" />
+                    <span>Municipal field maintenance crew is actively working on resolving this issue on site.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Citizen Verification Prompt (when resolved) */}
+            {status === 'resolved' && (
+              <div className="w-full flex flex-col sm:flex-row items-center justify-between gap-4 bg-emerald-50/70 p-5 rounded-2xl border border-emerald-200">
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-900">
+                    {language === 'hi' ? 'विभाग द्वारा समस्या का समाधान किया गया है!' : 'Department has marked this issue as resolved!'}
+                  </h4>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    {language === 'hi' ? 'कृपया पुष्टि करें कि क्या कार्य संतोषजनक रूप से पूरा हुआ है।' : 'Please confirm if the repair meets your satisfaction to officially close the ticket.'}
+                  </p>
+                </div>
+                {!isOfficer && (
+                  <Link 
+                    href={`/complaints/${id}/verify`}
+                    className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-sm shadow-blue-700/20 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    {language === 'hi' ? 'समाधान सत्यापित करें और रेटिंग दें →' : 'Verify & Rate Resolution →'}
+                  </Link>
+                )}
+              </div>
+            )}
+
+            {/* Verified Confirmation Banner */}
+            {status === 'verified' && (
+              <div className="w-full bg-teal-50/70 p-5 rounded-2xl border border-teal-200 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-teal-700" />
+                    {language === 'hi' ? 'नागरिक द्वारा समाधान सत्यापित एवं बंद' : 'Resolution Confirmed & Closed by Citizen'}
+                  </span>
+                  {ai_analysis?.verification?.rating && (
+                    <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-teal-200">
+                      <span className="text-xs font-bold text-slate-800">{ai_analysis.verification.rating} / 5</span>
+                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                    </div>
+                  )}
+                </div>
+                {ai_analysis?.verification?.comment && (
+                  <p className="text-xs text-teal-800 italic">
+                    &quot;{ai_analysis.verification.comment}&quot;
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
@@ -337,3 +656,4 @@ export default function ComplaintDetailPage() {
     </div>
   );
 }
+

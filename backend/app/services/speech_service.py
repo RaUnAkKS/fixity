@@ -16,6 +16,21 @@ from app.ai.schemas import AudioTranscriptionOutput
 logger = logging.getLogger(__name__)
 
 
+LANGUAGE_NAME_TO_CODE = {
+    "hindi": "hi",
+    "english": "en",
+    "bengali": "bn",
+    "tamil": "ta",
+    "telugu": "te",
+    "marathi": "mr",
+    "gujarati": "gu",
+    "kannada": "kn",
+    "malayalam": "ml",
+    "punjabi": "pa",
+    "urdu": "ur",
+}
+
+
 class SpeechService:
     """Service for transcribing spoken complaints in multiple Indian languages."""
 
@@ -50,8 +65,14 @@ class SpeechService:
                 filename=filename,
                 language=language,
             )
+            raw_lang = (result.get("detected_language") or language or "en").lower().strip()
+            # Map full name if needed
+            normalized_lang = LANGUAGE_NAME_TO_CODE.get(raw_lang, raw_lang)
+            result["detected_language"] = normalized_lang
+
             validated = AudioTranscriptionOutput(**result)
             return validated.model_dump()
+
         except Exception as groq_err:
             logger.warning(
                 "Groq Whisper transcription failed: %s. Attempting Gemini multimodal audio fallback...",

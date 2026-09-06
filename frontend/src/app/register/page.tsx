@@ -12,11 +12,11 @@ import {
   EyeOff,
   User,
   Phone,
-  Globe,
+  Languages as LanguagesIcon,
   Shield,
   AlertCircle,
   UserPlus,
-  Building2
+  Loader2,
 } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -48,8 +48,8 @@ export default function RegisterPage() {
       return;
     }
 
-    if (form.password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (form.password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -74,56 +74,89 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12 bg-slate-50">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg space-y-5">
         {/* Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded bg-blue-700 text-white font-bold text-xl shadow-sm mb-3">
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-tr from-blue-700 to-blue-600 text-white font-black text-xl shadow-md shadow-blue-700/20 mb-3">
             F
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Register Account — Fixity
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">
+            Create Fixity Account
           </h1>
-          <p className="mt-1 text-xs text-slate-600">
-            Municipal Grievance Reporting & Resolution Portal
+          <p className="mt-1 text-xs text-slate-500">
+            Municipal Grievance Reporting &amp; Resolution Grid
           </p>
         </div>
 
         {/* Form */}
-        <div className="rounded-md border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-6 sm:p-7 shadow-xs">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="flex items-center gap-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-800">
-                <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
-                {error}
+              <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{error}</span>
               </div>
             )}
 
+            {/* Role selector */}
+            <div className="space-y-1.5 pb-2 border-b border-slate-100">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                Select Account Type
+              </label>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => updateField('role', 'citizen')}
+                  className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition-all cursor-pointer ${
+                    form.role === 'citizen'
+                      ? 'border-blue-600 bg-blue-50/70 text-blue-700 ring-1 ring-blue-600 shadow-xs'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <User className="h-4 w-4" />
+                  <span>Citizen User</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateField('role', 'officer')}
+                  className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition-all cursor-pointer ${
+                    form.role === 'officer'
+                      ? 'border-purple-600 bg-purple-50/70 text-purple-700 ring-1 ring-purple-600 shadow-xs'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Shield className="h-4 w-4" />
+                  <span>Municipal Officer</span>
+                </button>
+              </div>
+            </div>
+
             {/* Full name */}
             <div>
-              <label htmlFor="full_name" className="block text-xs font-semibold text-slate-800 mb-1">
-                Full Name <span className="text-red-600">*</span>
+              <label htmlFor="full_name" className="block text-xs font-bold text-slate-800 mb-1.5">
+                Full Name <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
                   id="full_name"
                   type="text"
                   value={form.full_name}
                   onChange={(e) => updateField('full_name', e.target.value)}
                   required
-                  placeholder="Enter official full name"
-                  className="w-full rounded border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none"
+                  placeholder="Official full name"
+                  className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all"
                 />
               </div>
             </div>
 
             {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-xs font-semibold text-slate-800 mb-1">
-                Email Address <span className="text-red-600">*</span>
+              <label htmlFor="email" className="block text-xs font-bold text-slate-800 mb-1.5">
+                Email Address <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
                   id="email"
                   type="email"
@@ -131,7 +164,7 @@ export default function RegisterPage() {
                   onChange={(e) => updateField('email', e.target.value)}
                   required
                   placeholder="you@example.com"
-                  className="w-full rounded border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all"
                 />
               </div>
             </div>
@@ -139,62 +172,78 @@ export default function RegisterPage() {
             {/* Password */}
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label htmlFor="password" className="block text-xs font-semibold text-slate-800 mb-1">
-                  Password <span className="text-red-600">*</span>
+                <label htmlFor="password" className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Password <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={(e) => updateField('password', e.target.value)}
-                  required
-                  minLength={6}
-                  placeholder="Min 6 chars"
-                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                />
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => updateField('password', e.target.value)}
+                    required
+                    minLength={8}
+                    placeholder="Min 8 chars"
+                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2.5 text-xs text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all"
+                  />
+                </div>
               </div>
 
               <div>
-                <label htmlFor="confirmPassword" className="block text-xs font-semibold text-slate-800 mb-1">
+                <label htmlFor="confirmPassword" className="block text-xs font-bold text-slate-800 mb-1.5">
                   Confirm Password
                 </label>
-                <input
-                  id="confirmPassword"
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.confirmPassword}
-                  onChange={(e) => updateField('confirmPassword', e.target.value)}
-                  required
-                  placeholder="Re-enter password"
-                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                />
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    id="confirmPassword"
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.confirmPassword}
+                    onChange={(e) => updateField('confirmPassword', e.target.value)}
+                    required
+                    placeholder="Re-enter password"
+                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-10 py-2.5 text-xs text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Phone & Language */}
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label htmlFor="phone" className="block text-xs font-semibold text-slate-800 mb-1">
+                <label htmlFor="phone" className="block text-xs font-bold text-slate-800 mb-1.5">
                   Phone Number
                 </label>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => updateField('phone', e.target.value)}
-                  placeholder="+91 9876543210"
-                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
-                />
+                <div className="relative">
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(e) => updateField('phone', e.target.value)}
+                    placeholder="+91 9876543210"
+                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3.5 py-2.5 text-xs text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all"
+                  />
+                </div>
               </div>
 
               <div>
-                <label htmlFor="language" className="block text-xs font-semibold text-slate-800 mb-1">
+                <label htmlFor="language" className="block text-xs font-bold text-slate-800 mb-1.5">
                   Language Preference
                 </label>
                 <select
                   id="language"
                   value={form.preferred_language}
                   onChange={(e) => updateField('preferred_language', e.target.value)}
-                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:border-blue-600 focus:outline-none font-medium"
                 >
                   {LANGUAGES.map((lang) => (
                     <option key={lang.code} value={lang.code}>
@@ -205,58 +254,30 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Role selector */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-800 mb-1.5">
-                Account Category
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => updateField('role', 'citizen')}
-                  className={`flex items-center justify-center gap-2 rounded border px-3 py-2 text-xs font-semibold transition-colors ${
-                    form.role === 'citizen'
-                      ? 'border-blue-700 bg-blue-50 text-blue-700'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <User className="h-4 w-4" />
-                  Citizen
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateField('role', 'officer')}
-                  className={`flex items-center justify-center gap-2 rounded border px-3 py-2 text-xs font-semibold transition-colors ${
-                    form.role === 'officer'
-                      ? 'border-blue-700 bg-blue-50 text-blue-700'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <Shield className="h-4 w-4" />
-                  Municipal Officer
-                </button>
-              </div>
-            </div>
-
             {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 rounded bg-blue-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-50 transition-colors mt-2"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-xs font-bold text-white shadow-md shadow-blue-700/20 hover:bg-blue-800 disabled:opacity-50 transition-all cursor-pointer mt-2"
             >
               {loading ? (
-                <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Registering Account...
+                </>
               ) : (
-                <UserPlus className="h-4 w-4" />
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Register Account
+                </>
               )}
-              {loading ? 'REGISTERING ACCOUNT...' : 'REGISTER ACCOUNT'}
             </button>
           </form>
         </div>
 
         {/* Login link */}
-        <p className="mt-4 text-center text-xs text-slate-600">
-          Already registered?{' '}
+        <p className="text-center text-xs text-slate-500">
+          Already have an account?{' '}
           <Link href="/login" className="font-bold text-blue-700 hover:underline">
             Sign In Here
           </Link>
@@ -265,3 +286,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+

@@ -11,8 +11,10 @@ from app.schemas.auth import (
     UserDetailResponse,
     TokenResponse,
     UserUpdate,
+    ReputationBreakdownResponse,
 )
 from app.services import auth_service
+from app.services.reputation_service import ReputationService
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -58,3 +60,80 @@ async def update_me(
         preferred_language=data.preferred_language,
     )
     return UserDetailResponse.model_validate(updated)
+
+
+@router.get("/reputation", response_model=ReputationBreakdownResponse)
+async def get_my_reputation(current_user: User = Depends(get_current_user)):
+    """Get authenticated citizen's civic reputation breakdown and tier status."""
+    return ReputationService.get_reputation_detail(current_user)
+
+
+@router.post("/setup-demo-accounts")
+async def setup_demo_accounts(db: AsyncSession = Depends(get_db)):
+    """Ensure standard demo accounts and promoter roles exist."""
+    import asyncio
+    from sqlalchemy import select
+    from app.core.security import hash_password
+    
+    # Pre-hash once in worker thread
+    demo123_hash = await asyncio.to_thread(hash_password, "demo123")
+    
+    accounts = [
+        ("officer@fixity.demo", demo123_hash, "Municipal Officer (Fixity)", "officer"),
+        ("admin@fixity.demo", demo123_hash, "System Administrator (Fixity)", "admin"),
+        ("citizen@fixity.demo", demo123_hash, "Demo Citizen (Fixity)", "citizen"),
+    ]
+    
+    for email, pwd_hash, name, role in accounts:
+        res = await db.execute(select(User).where(User.email == email))
+        u = res.scalar_one_or_none()
+        if u:
+            u.password_hash = pwd_hash
+            u.role = role
+            u.full_name = name
+        else:
+            new_u = User(
+                email=email,
+                password_hash=pwd_hash,
+                full_name=name,
+                role=role,
+                preferred_language="en"
+            )
+            db.add(new_u)
+
+    # Set personal test accounts to citizen role
+    for special_email in ["raunak@gmail.com", "rehan.2006ktm@gmail.com"]:
+        res = await db.execute(select(User).where(User.email == special_email))
+        u = res.scalar_one_or_none()
+        if u:
+            u.role = "citizen"
+            
+    await db.commit()
+    return {"status": "success", "message": "Demo accounts initialized with clear Citizen / Officer separation."}
+
+
+@router.post("/switch-role")
+async def switch_role(
+    role_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Allow quick role switching for testing between citizen and officer."""
+    from app.core.security import create_access_token
+    new_role = role_data.get("role")
+    if new_role not in ("citizen", "officer", "admin"):
+        new_role = "officer" if current_user.role == "citizen" else "citizen"
+    
+    current_user.role = new_role
+    await db.commit()
+    await db.refresh(current_user)
+    
+    token = create_access_token(current_user.id, current_user.role)
+    return {
+        "status": "success",
+        "role": current_user.role,
+        "token": token,
+        "user": UserResponse.model_validate(current_user),
+    }
+
+

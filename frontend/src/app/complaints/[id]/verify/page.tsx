@@ -1,59 +1,79 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Star, Camera, CheckCircle2, AlertCircle, Send, ArrowLeft, Building2 } from 'lucide-react';
+import { useRouter, useParams } from 'next/navigation';
+import { api } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
+import {
+  ArrowLeft,
+  Star,
+  ShieldCheck,
+  AlertCircle,
+  Send,
+  Loader2,
+  ThumbsUp,
+  AlertTriangle,
+  XCircle,
+} from 'lucide-react';
 
-export default function VerifyPage() {
+export default function VerifyResolutionPage() {
   const params = useParams();
-  const router = useRouter();
   const id = params.id as string;
+  const router = useRouter();
+  const { t, language } = useLanguage();
 
-  const [rating, setRating] = useState<number>(0);
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [resolutionStatus, setResolutionStatus] = useState<'fixed' | 'partial' | 'not_fixed' | ''>('');
   const [comment, setComment] = useState('');
-  const [resolutionStatus, setResolutionStatus] = useState<'resolved' | 'partial' | 'not_fixed' | ''>('');
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const url = URL.createObjectURL(file);
-      setPhotoUrl(url);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rating || !resolutionStatus) {
+      setError(language === 'hi' ? 'कृपया स्टार रेटिंग दें और समाधान स्थिति चुनें।' : 'Please provide a star rating and select the resolution status.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+
+    try {
+      await api.post(`/api/complaints/${id}/verify`, {
+        rating,
+        status: resolutionStatus,
+        comment
+      });
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message || (language === 'hi' ? 'सत्यापन जमा करने में विफल' : 'Failed to submit verification'));
+      setSubmitting(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setTimeout(() => {
-      setSubmitted(true);
-    }, 400);
-  };
-
-  if (submitted) {
+  if (success) {
     return (
-      <div className="bg-slate-50 min-h-screen py-12 flex items-center justify-center">
-        <div className="bg-white rounded-md border border-slate-200 p-8 text-center max-w-md shadow-sm">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded border border-emerald-200 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 size={24} />
+      <div className="min-h-[70vh] bg-slate-50 flex items-center justify-center px-4 py-12">
+        <div className="max-w-md w-full bg-white border border-slate-200/80 rounded-2xl p-8 text-center space-y-4 shadow-sm">
+          <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto border border-emerald-100">
+            <ShieldCheck className="w-7 h-7" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 mb-2">Resolution Verification Recorded</h1>
-          <p className="text-xs text-slate-600 mb-6 leading-relaxed">
-            Thank you for verifying the municipal repair work. Your evaluation has been registered into the Fixity resolution metrics database.
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">
+            {language === 'hi' ? 'सत्यापन सफलतापूर्वक दर्ज हुआ' : 'Verification Submitted'}
+          </h2>
+          <p className="text-slate-600 text-xs leading-relaxed">
+            {t('verification_success')}
           </p>
-          <div className="flex gap-3 justify-center">
+          <div className="pt-2">
             <Link 
-              href={`/complaints/${id}`}
-              className="px-4 py-2 bg-blue-700 text-white rounded text-xs font-bold hover:bg-blue-800 transition-colors"
+              href="/complaints" 
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-700/20"
             >
-              Return to Case File
-            </Link>
-            <Link 
-              href="/dashboard"
-              className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded text-xs font-semibold hover:bg-slate-50 transition-colors"
-            >
-              View Operations Dashboard
+              {language === 'hi' ? '← मेरी शिकायतों पर वापस जाएं' : 'Return to My Complaints'}
             </Link>
           </div>
         </div>
@@ -63,136 +83,147 @@ export default function VerifyPage() {
 
   return (
     <div className="bg-slate-50 min-h-screen py-8">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6">
-        
-        <div className="mb-4">
-          <Link 
-            href={`/complaints/${id}`}
-            className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-blue-700 transition-colors"
-          >
-            <ArrowLeft size={14} className="mr-1" />
-            Back to Case File #{id}
+      <div className="max-w-xl mx-auto px-4 sm:px-6 space-y-5">
+        <div>
+          <Link href={`/complaints/${id}`} className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700 transition-colors mb-3">
+            <ArrowLeft className="h-4 w-4" /> {language === 'hi' ? 'शिकायत विवरण पर वापस जाएं' : 'Back to Case Details'}
           </Link>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">{t('verify_title')}</h1>
+          <p className="text-xs text-slate-500 mt-1">{t('verify_subtitle')}</p>
         </div>
 
-        <div className="bg-white rounded-md border border-slate-200 p-6 mb-6 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 uppercase tracking-wider mb-1">
-            <Building2 className="h-4 w-4" /> Official Resolution Verification Form
-          </div>
-          <h1 className="text-xl font-bold text-slate-900">Verify Resolution Work</h1>
-          <p className="text-xs text-slate-600 mt-1">
-            Provide citizen inspection feedback on the completed municipal works for Case #{id}.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-md border border-slate-200 shadow-sm">
-          
-          <div className="space-y-3">
-            <label className="block text-xs font-bold text-slate-900">
-              WAS THE REPORTED PROBLEM ACTUALLY FIXED? <span className="text-red-600">*</span>
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { id: 'resolved', label: 'Yes, Fully Resolved', icon: CheckCircle2, color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300' },
-                { id: 'partial', label: 'Partially Improved', icon: AlertCircle, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-300' },
-                { id: 'not_fixed', label: 'Not Fixed at All', icon: AlertCircle, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300' },
-              ].map((option) => {
-                const Icon = option.icon;
-                const isSelected = resolutionStatus === option.id;
-                return (
-                  <button
-                    type="button"
-                    key={option.id}
-                    onClick={() => setResolutionStatus(option.id as any)}
-                    className={`flex flex-col items-center justify-center p-3 border rounded text-xs font-semibold transition-all ${
-                      isSelected 
-                        ? `${option.border} ${option.bg} text-slate-900 font-bold ring-1 ring-blue-700` 
-                        : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <Icon className={`mb-1.5 ${isSelected ? option.color : 'text-slate-400'}`} size={20} />
-                    <span>{option.label}</span>
-                  </button>
-                )
-              })}
+        <form onSubmit={handleSubmit} className="bg-white border border-slate-200/80 rounded-2xl p-6 sm:p-7 space-y-6 shadow-xs">
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3.5 text-xs text-rose-800">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+              <span>{error}</span>
             </div>
-          </div>
+          )}
 
+          {/* Resolution Status Radio Cards */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-900">
-              RATE THE QUALITY OF COMPLETED WORK <span className="text-red-600">*</span>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+              {t('verify_status_label')} <span className="text-rose-500">*</span>
             </label>
-            <div className="flex gap-2">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  className="focus:outline-none transition-transform hover:scale-105"
+            <div className="grid gap-2.5">
+              {[
+                { 
+                  id: 'fixed', 
+                  label: t('verify_status_fixed'), 
+                  desc: language === 'hi' ? 'कार्य 100% संतोषजनक रूप से पूर्ण हुआ' : 'Work is 100% complete to standard', 
+                  icon: ThumbsUp, 
+                  color: 'text-emerald-600' 
+                },
+                { 
+                  id: 'partial', 
+                  label: t('verify_status_partial'), 
+                  desc: language === 'hi' ? 'कार्य शुरू हुआ है परंतु अभी अधूरा है' : 'Work has begun but is incomplete', 
+                  icon: AlertTriangle, 
+                  color: 'text-amber-600' 
+                },
+                { 
+                  id: 'not_fixed', 
+                  label: t('verify_status_not_fixed'), 
+                  desc: language === 'hi' ? 'समस्या अभी भी वैसी ही बनी हुई है' : 'Problem still persists unchanged', 
+                  icon: XCircle, 
+                  color: 'text-rose-600' 
+                },
+              ].map((option) => (
+                <label
+                  key={option.id}
+                  className={`flex items-center gap-3.5 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                    resolutionStatus === option.id
+                      ? 'border-blue-600 bg-blue-50/50 shadow-xs ring-1 ring-blue-600'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
                 >
-                  <Star
-                    size={28}
-                    className={`${
-                      star <= rating ? 'fill-amber-400 text-amber-500' : 'text-slate-300'
-                    }`}
+                  <input 
+                    type="radio" 
+                    name="resolutionStatus"
+                    value={option.id}
+                    checked={resolutionStatus === option.id}
+                    onChange={(e) => setResolutionStatus(e.target.value as any)}
+                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-600"
                   />
-                </button>
+                  <option.icon className={`h-5 w-5 shrink-0 ${option.color}`} />
+                  <div className="flex-1">
+                    <span className="block text-xs font-bold text-slate-900">{option.label}</span>
+                    <span className="block text-[11px] text-slate-500">{option.desc}</span>
+                  </div>
+                </label>
               ))}
             </div>
           </div>
 
+          {/* Star Rating Picker */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-900">
-              UPLOAD INSPECTION PHOTO EVIDENCE <span className="text-slate-400 font-normal">(Optional)</span>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+              {t('verify_rating_label')} <span className="text-rose-500">*</span>
             </label>
-            
-            {!photoUrl ? (
-              <label className="flex items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors">
-                <div className="text-center text-xs text-slate-600">
-                  <Camera className="w-5 h-5 text-slate-400 mx-auto mb-1" />
-                  <span>Click to attach verification photo</span>
-                </div>
-                <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
-              </label>
-            ) : (
-              <div className="relative w-full h-40 rounded border border-slate-300 overflow-hidden">
-                <img src={photoUrl} alt="Inspection Photo" className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => setPhotoUrl(null)}
-                  className="absolute top-2 right-2 bg-slate-900/80 text-white text-xs px-2 py-1 rounded hover:bg-slate-900"
-                >
-                  Remove
-                </button>
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    className="p-1.5 focus:outline-none transition-transform hover:scale-110 cursor-pointer"
+                  >
+                    <Star
+                      className={`w-7 h-7 transition-colors ${
+                        (hoverRating || rating) >= star
+                          ? 'fill-amber-400 text-amber-400'
+                          : 'fill-slate-200 text-slate-200'
+                      }`}
+                    />
+                  </button>
+                ))}
               </div>
-            )}
+              <span className="text-xs font-bold text-slate-700 ml-2">
+                {rating > 0 
+                  ? `${rating} / 5 ${language === 'hi' ? 'सितारे' : 'Stars'}` 
+                  : (language === 'hi' ? 'रेटिंग चुनें' : 'Select rating')}
+              </span>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <label htmlFor="comment" className="block text-xs font-bold text-slate-900">
-              CITIZEN FEEDBACK COMMENTS
+          {/* Comments */}
+          <div className="space-y-1.5">
+            <label htmlFor="comment" className="block text-xs font-bold uppercase tracking-wider text-slate-800">
+              {t('verify_comment_label')}
             </label>
-            <textarea
+            <textarea 
               id="comment"
               rows={3}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="w-full p-3 border border-slate-300 rounded text-xs text-slate-900 focus:border-blue-700 outline-none"
-              placeholder="Provide specific notes regarding the condition of the repaired area..."
+              placeholder={t('verify_comment_placeholder')}
+              className="w-full rounded-xl border border-slate-200 p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 transition-all resize-none"
             />
           </div>
 
-          <button
+          <button 
             type="submit"
-            disabled={!resolutionStatus || rating === 0}
-            className="w-full flex items-center justify-center py-2.5 px-4 border border-transparent rounded text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs font-bold"
+            disabled={submitting}
+            className="w-full bg-blue-700 hover:bg-blue-800 text-white py-3 rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-700/20 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2 cursor-pointer"
           >
-            <Send className="mr-1.5" size={16} />
-            SUBMIT VERIFICATION RECORD
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('btn_submitting_verification')}
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4" />
+                {t('btn_submit_verification')}
+              </>
+            )}
           </button>
-
         </form>
       </div>
     </div>
   );
 }
+

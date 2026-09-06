@@ -14,6 +14,7 @@ class ComplaintCreate(BaseModel):
     longitude: float
     language: str | None = None
     category: str | None = None
+    address: str | None = None
 
 
 # ── Evidence ──
@@ -37,7 +38,7 @@ class EvidenceResponse(BaseModel):
 
 
 class ComplaintResponse(BaseModel):
-    """Standard complaint response."""
+    """Standard complaint response with community signal metrics."""
 
     id: UUID
     citizen_id: UUID
@@ -56,6 +57,15 @@ class ComplaintResponse(BaseModel):
     department_id: int | None = None
     cluster_id: UUID | None = None
     ai_analysis: dict | None = None
+    parent_issue_id: UUID | None = None
+    merged_reports_count: int = 0
+    reporter_reputation: int = 0
+    reporter_name: str | None = None
+    confirmation_count: int = 0
+    community_signal: str = "Low"
+    community_signal_score: int = 1
+    user_has_confirmed: bool = False
+    is_community_critical: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -78,6 +88,31 @@ class ComplaintDetail(ComplaintResponse):
     analysis: dict | None = None
     cluster: dict | None = None  # ClusterSummary, filled when available
     verifications: list[dict] = []  # VerificationResponse, filled when available
+    is_author: bool = False
+
+
+class ConfirmationResponse(BaseModel):
+    """Response returned when a user confirms an issue ('I'm affected too')."""
+
+    confirmed: bool = True
+    confirmation_count: int
+    community_signal: str
+    community_signal_score: int
+    is_community_critical: bool
+    user_has_confirmed: bool = True
+
+
+class CommunityStatusResponse(BaseModel):
+    """Community signal status for an issue."""
+
+    complaint_id: UUID
+    confirmation_count: int
+    community_signal: str
+    community_signal_score: int
+    is_community_critical: bool
+    user_has_confirmed: bool
+    is_author: bool
+
 
 
 # ── Status Update ──

@@ -15,6 +15,7 @@ import json
 import logging
 from typing import Any
 
+import httpx
 from groq import Groq
 
 from app.config import settings
@@ -28,7 +29,7 @@ class GroqClient:
     def __init__(self):
         if not settings.GROQ_API_KEY:
             logger.warning("GROQ_API_KEY not set — Groq calls will fail")
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
+        self.client = Groq(api_key=settings.GROQ_API_KEY, http_client=httpx.Client())
 
     # ------------------------------------------------------------------
     # Speech-to-Text (Whisper)
@@ -97,11 +98,10 @@ class GroqClient:
             Plain text response string.
         """
         candidate_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "mixtral-8x7b-32768",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b",
+            "qwen/qwen3.6-27b",
         ]
 
         async def _call():
@@ -121,7 +121,8 @@ class GroqClient:
                     return response.choices[0].message.content
                 except Exception as e:
                     last_err = e
-                    if "model_not_found" in str(e) or "404" in str(e):
+                    err_str = str(e).lower()
+                    if "model_not_found" in err_str or "404" in err_str or "decommissioned" in err_str or "400" in err_str:
                         continue
                     raise
             raise last_err

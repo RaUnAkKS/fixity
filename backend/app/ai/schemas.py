@@ -30,6 +30,21 @@ class ImageAnalysisOutput(BaseModel):
     is_relevant: bool = True
 
 
+class PhotoAutoscanOutput(BaseModel):
+    """Output schema for photo auto-scan accessibility feature."""
+    description: str
+    category: str
+    subcategory: str | None = None
+    severity: int = Field(ge=1, le=100)
+    detected_issues: list[str] = Field(default_factory=list)
+    suggested_department: str
+    is_relevant: bool = True
+    latitude: float | None = None
+    longitude: float | None = None
+    has_exif_gps: bool = False
+
+
+
 class RootCauseItem(BaseModel):
     """Item structure for root cause analysis."""
     cause: str

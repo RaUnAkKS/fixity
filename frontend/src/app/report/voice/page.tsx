@@ -14,13 +14,15 @@ import {
   RotateCcw,
   Languages,
   Volume2,
-  Building2,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { TranscriptionResult, LANGUAGES } from '@/lib/types';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function VoiceReportPage() {
   const router = useRouter();
+  const { language: appLang, t } = useLanguage();
 
   // Recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -88,15 +90,15 @@ export default function VoiceReportPage() {
         setTranscribedText(result.text);
         setDetectedLanguage(result.detected_language || null);
         setConfidence(typeof result.confidence === 'number' ? result.confidence : null);
-        setSuccessMessage('Speech transcription completed. Please review or edit the text below.');
+        setSuccessMessage(appLang === 'hi' ? 'आवाज सफलतापूर्वक पहचानी गई। आप नीचे दिए गए टेक्स्ट को संपादित कर सकते हैं।' : 'Speech transcription completed. You can edit the text below or proceed.');
       } else {
-        setError('No speech could be recognized. Please speak clearly into your microphone.');
+        setError(appLang === 'hi' ? 'आवाज पहचानी नहीं जा सकी। कृपया माइक्रोफ़ोन में स्पष्ट रूप से बोलें।' : 'No speech could be recognized. Please speak clearly into your microphone.');
       }
     } catch (err: any) {
       console.error('Voice transcription error:', err);
       setError(
         err.message ||
-          'Voice transcription service unavailable. You can record again or enter text manually.'
+          (appLang === 'hi' ? 'आवाज सेवा उपलब्ध नहीं है। आप पुनः रिकॉर्ड कर सकते हैं या मैन्युअल रूप से लिख सकते हैं।' : 'Voice transcription service unavailable. You can record again or enter text manually.')
       );
     } finally {
       setIsTranscribing(false);
@@ -115,7 +117,7 @@ export default function VoiceReportPage() {
     }
 
     if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
-      setError('Audio recording is not supported in this browser.');
+      setError(appLang === 'hi' ? 'इस ब्राउज़र में ऑडियो रिकॉर्डिंग समर्थित नहीं है।' : 'Audio recording is not supported in this browser.');
       return;
     }
 
@@ -171,9 +173,9 @@ export default function VoiceReportPage() {
     } catch (err: any) {
       console.error('Microphone access error:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setError('Microphone permission denied. Please allow microphone access in your browser.');
+        setError(appLang === 'hi' ? 'माइक्रोफ़ोन की अनुमति अस्वीकृत। कृपया ब्राउज़र सेटिंग्स में माइक्रोफ़ोन की अनुमति दें।' : 'Microphone permission denied. Please allow microphone access in your browser settings.');
       } else {
-        setError(err.message || 'Could not access microphone.');
+        setError(err.message || (appLang === 'hi' ? 'माइक्रोफ़ोन तक पहुँचने में विफल।' : 'Could not access microphone.'));
       }
     }
   };
@@ -217,11 +219,45 @@ export default function VoiceReportPage() {
 
   const handleUseText = () => {
     if (!transcribedText.trim()) {
-      setError('Please record or enter text before proceeding.');
+      setError(appLang === 'hi' ? 'कृपया आगे बढ़ने से पहले अपनी बात बोलें या लिखें।' : 'Please record or enter text before proceeding.');
       return;
     }
-    router.push(`/report?text=${encodeURIComponent(transcribedText.trim())}`);
+
+    // Determine and normalize language
+    let lang = (detectedLanguage || languageHint || '').toLowerCase().trim();
+    if (lang === 'hindi') lang = 'hi';
+    else if (lang === 'bengali') lang = 'bn';
+    else if (lang === 'tamil') lang = 'ta';
+    else if (lang === 'telugu') lang = 'te';
+    else if (lang === 'marathi') lang = 'mr';
+    else if (lang === 'gujarati') lang = 'gu';
+    else if (lang === 'kannada') lang = 'kn';
+    else if (lang === 'malayalam') lang = 'ml';
+    else if (lang === 'punjabi') lang = 'pa';
+    else if (lang === 'urdu') lang = 'ur';
+    else if (lang === 'english') lang = 'en';
+
+    // Auto-detect by unicode script if not set
+    if (!lang || lang === 'unknown') {
+      if (/[\u0900-\u097F]/.test(transcribedText)) lang = 'hi';
+      else if (/[\u0980-\u09FF]/.test(transcribedText)) lang = 'bn';
+      else if (/[\u0B80-\u0BFF]/.test(transcribedText)) lang = 'ta';
+      else if (/[\u0C00-\u0C7F]/.test(transcribedText)) lang = 'te';
+      else if (/[\u0A80-\u0AFF]/.test(transcribedText)) lang = 'gu';
+      else if (/[\u0C80-\u0CFF]/.test(transcribedText)) lang = 'kn';
+      else if (/[\u0D00-\u0D7F]/.test(transcribedText)) lang = 'ml';
+      else if (/[\u0A00-\u0A7F]/.test(transcribedText)) lang = 'pa';
+      else if (/[\u0600-\u06FF]/.test(transcribedText)) lang = 'ur';
+    }
+
+    const query = new URLSearchParams();
+    query.set('text', transcribedText.trim());
+    if (lang) {
+      query.set('lang', lang);
+    }
+    router.push(`/report?${query.toString()}`);
   };
+
 
   return (
     <div className="bg-slate-50 min-h-screen py-8">
@@ -231,38 +267,40 @@ export default function VoiceReportPage() {
         <div className="mb-4">
           <Link
             href="/report"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Return to Standard Complaint Form
+            {appLang === 'hi' ? 'मानक शिकायत फॉर्म पर वापस जाएं' : 'Back to standard form'}
           </Link>
         </div>
 
         {/* Page Header */}
-        <div className="bg-white rounded-md border border-slate-200 p-6 mb-6 text-center shadow-sm">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded bg-blue-50 text-blue-700 mb-3 border border-blue-200">
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 mb-5 text-center shadow-xs">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-blue-50 text-blue-700 mb-3 border border-blue-100">
             <Mic className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">
-            Voice Complaint Registration
+          <h1 className="text-xl font-black text-slate-900 tracking-tight">
+            {appLang === 'hi' ? 'आवाज द्वारा शिकायत दर्ज करें' : 'Voice Grievance Capture'}
           </h1>
-          <p className="mt-1 text-xs text-slate-600 max-w-md mx-auto">
-            Speak in your preferred language to describe the civic issue. Speech recognition will convert your voice into a written complaint.
+          <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+            {appLang === 'hi' 
+              ? 'हिंदी, अंग्रेजी या किसी भी क्षेत्रीय भाषा में बोलें। एआई आवाज को टेक्स्ट में बदलकर नगर निगम को भेजेगा।' 
+              : 'Speak naturally in Hindi, English, or any regional language. Fixity AI converts speech to text and automatically translates it for municipal routing.'}
           </p>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           
           {/* Language Hint Selection */}
-          <div className="bg-white rounded-md border border-slate-200 p-4 shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div>
-                <label htmlFor="language-select" className="font-semibold text-slate-800 flex items-center gap-1.5">
+                <label htmlFor="language-select" className="font-bold text-slate-800 flex items-center gap-1.5">
                   <Languages className="h-4 w-4 text-blue-700" />
-                  Select Spoken Language
+                  {appLang === 'hi' ? 'बोली जाने वाली भाषा' : 'Spoken Language'}
                 </label>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Specifying your language improves transcription accuracy.
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {appLang === 'hi' ? 'एआई को क्षेत्रीय भाषा सटीक रूप से पहचानने में मदद करता है।' : 'Helps the AI recognizer detect regional dialects accurately.'}
                 </p>
               </div>
               <select
@@ -270,9 +308,9 @@ export default function VoiceReportPage() {
                 value={languageHint}
                 onChange={(e) => setLanguageHint(e.target.value)}
                 disabled={isRecording || isTranscribing}
-                className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-600 focus:outline-none disabled:bg-slate-100"
+                className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-800 focus:border-blue-600 focus:outline-none disabled:bg-slate-50 font-medium"
               >
-                <option value="">Auto-Detect Language</option>
+                <option value="">{appLang === 'hi' ? 'स्वचालित भाषा पहचान (Auto)' : 'Auto-Detect Language'}</option>
                 {LANGUAGES.map((lang) => (
                   <option key={lang.code} value={lang.code}>
                     {lang.name}
@@ -282,106 +320,110 @@ export default function VoiceReportPage() {
             </div>
           </div>
 
-          {/* Recording Card */}
-          <div className="bg-white rounded-md border border-slate-200 p-8 shadow-sm text-center">
+          {/* Studio Recording Card */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-xs text-center space-y-6">
             
-            <div className="h-8 flex items-center justify-center mb-6">
+            {/* Status Pill */}
+            <div className="h-8 flex items-center justify-center">
               {isRecording ? (
-                <div className="inline-flex items-center gap-2 rounded bg-red-50 border border-red-200 px-3 py-1 text-xs font-bold text-red-700">
+                <div className="inline-flex items-center gap-2 rounded-full bg-rose-50 border border-rose-200 px-3.5 py-1 text-xs font-bold text-rose-700">
                   <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-600"></span>
                   </span>
-                  <span>RECORDING ({formatTime(recordingDuration)})</span>
+                  <span>{appLang === 'hi' ? `रिकॉर्डिंग जारी (${formatTime(recordingDuration)})` : `RECORDING (${formatTime(recordingDuration)})`}</span>
                 </div>
               ) : isTranscribing ? (
-                <div className="inline-flex items-center gap-2 rounded bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700">
+                <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-200 px-3.5 py-1 text-xs font-semibold text-blue-700">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Transcribing Voice File...
+                  <span>{appLang === 'hi' ? 'एआई द्वारा आवाज का विश्लेषण हो रहा है...' : 'Transcribing with AI Speech Model...'}</span>
                 </div>
               ) : audioBlob ? (
-                <div className="inline-flex items-center gap-2 rounded bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-800">
+                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3.5 py-1 text-xs font-semibold text-emerald-800">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
-                  Audio File Captured ({formatTime(recordingDuration)})
+                  <span>{appLang === 'hi' ? `ऑडियो रिकॉर्ड हुआ (${formatTime(recordingDuration)})` : `Audio Captured (${formatTime(recordingDuration)})`}</span>
                 </div>
               ) : (
-                <span className="text-xs text-slate-500">
-                  Click button below to start audio capture
+                <span className="text-xs text-slate-400">
+                  {appLang === 'hi' ? 'रिकॉर्डिंग शुरू करने के लिए माइक बटन दबाएं' : 'Press the microphone button to start recording'}
                 </span>
               )}
             </div>
 
-            {/* Record Button */}
-            <div className="flex justify-center mb-4">
+            {/* Pulsing Aura & Big Button */}
+            <div className="flex justify-center">
               <button
                 type="button"
                 onClick={handleToggleRecord}
                 disabled={isTranscribing}
-                className={`rounded-full w-20 h-20 flex items-center justify-center text-white font-bold transition-all shadow-md ${
+                className={`relative rounded-full w-24 h-24 flex items-center justify-center text-white font-bold transition-all shadow-lg cursor-pointer ${
                   isRecording
-                    ? 'bg-red-600 hover:bg-red-700 ring-4 ring-red-100'
-                    : 'bg-blue-700 hover:bg-blue-800 ring-4 ring-blue-50 disabled:opacity-50'
+                    ? 'bg-rose-600 hover:bg-rose-700 ring-8 ring-rose-100 animate-pulse'
+                    : 'bg-blue-700 hover:bg-blue-800 ring-8 ring-blue-50 hover:scale-105 disabled:opacity-50'
                 }`}
               >
                 {isRecording ? (
-                  <Square className="h-7 w-7 fill-current" />
+                  <Square className="h-8 w-8 fill-current" />
                 ) : isTranscribing ? (
-                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <Loader2 className="h-9 w-9 animate-spin" />
                 ) : (
-                  <Mic className="h-8 w-8" />
+                  <Mic className="h-9 w-9" />
                 )}
               </button>
             </div>
 
-            <p className="text-xs font-bold text-slate-800">
-              {isRecording
-                ? 'CLICK TO STOP RECORDING'
-                : isTranscribing
-                ? 'Processing Speech...'
-                : audioBlob
-                ? 'RECORD AGAIN'
-                : 'START SPEAKING'}
-            </p>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                {isRecording
+                  ? (appLang === 'hi' ? 'रिकॉर्डिंग रोकने के लिए टैप करें' : 'Tap to Stop Recording')
+                  : isTranscribing
+                  ? (appLang === 'hi' ? 'ऑडियो का विश्लेषण जारी...' : 'Processing audio speech...')
+                  : audioBlob
+                  ? (appLang === 'hi' ? 'दोबारा रिकॉर्ड करने के लिए टैप करें' : 'Tap to Record Again')
+                  : (appLang === 'hi' ? 'बोलने के लिए टैप करें' : 'Tap to Speak')}
+              </p>
+            </div>
 
             {audioUrl && !isRecording && (
-              <div className="mt-6 pt-4 border-t border-slate-200 max-w-sm mx-auto">
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-                  <span className="font-semibold text-slate-700 flex items-center gap-1">
-                    <Volume2 className="h-3.5 w-3.5" /> Audio File Preview
+              <div className="pt-4 border-t border-slate-100 max-w-sm mx-auto">
+                <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+                  <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Volume2 className="h-3.5 w-3.5 text-blue-600" /> {appLang === 'hi' ? 'रिकॉर्ड किया गया ऑडियो' : 'Recorded Audio'}
                   </span>
-                  <span>{formatTime(recordingDuration)}</span>
+                  <span className="font-mono">{formatTime(recordingDuration)}</span>
                 </div>
-                <audio controls src={audioUrl} className="w-full h-8" />
+                <audio controls src={audioUrl} className="w-full h-9 rounded-lg" />
               </div>
             )}
           </div>
 
           {/* Errors */}
           {error && (
-            <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 p-4 text-xs text-red-800">
-              <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 p-4 text-xs text-rose-800">
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
               <div>{error}</div>
             </div>
           )}
 
           {/* Success */}
           {successMessage && !error && (
-            <div className="flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 p-4 text-xs text-emerald-800 font-medium">
+            <div className="flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-xs text-emerald-800 font-medium">
               <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
-              {successMessage}
+              <span>{successMessage}</span>
             </div>
           )}
 
           {/* Transcription Result Area */}
           {(transcribedText || isTranscribing) && (
-            <div className="bg-white rounded-md border border-slate-200 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-bold text-slate-900">
-                  TRANSCRIPT REVIEW & EDIT
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                  {appLang === 'hi' ? 'पहचाना गया विवरण' : 'Transcript Review'}
                 </label>
                 {detectedLanguage && (
-                  <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Language: {detectedLanguage.toUpperCase()}
+                  <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    {appLang === 'hi' ? 'पहचानी गई भाषा' : 'Detected'}: {detectedLanguage.toUpperCase()}
                   </span>
                 )}
               </div>
@@ -391,27 +433,27 @@ export default function VoiceReportPage() {
                 value={transcribedText}
                 onChange={(e) => setTranscribedText(e.target.value)}
                 disabled={isTranscribing}
-                placeholder="Transcription text will display here..."
-                className="w-full rounded-md border border-slate-300 p-3 text-xs text-slate-900 focus:border-blue-600 focus:outline-none"
+                placeholder={appLang === 'hi' ? 'बोला गया विवरण यहाँ दिखेगा...' : 'Transcribed voice text will appear here...'}
+                className="w-full rounded-xl border border-slate-200 p-3.5 text-xs text-slate-900 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/10 focus:outline-none transition-all resize-y"
               />
 
-              <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={handleReset}
                   disabled={isTranscribing}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  <RotateCcw className="h-3.5 w-3.5" /> Record Again
+                  <RotateCcw className="h-3.5 w-3.5" /> {appLang === 'hi' ? 'दोबारा रिकॉर्ड करें' : 'Record Again'}
                 </button>
 
                 <button
                   type="button"
                   onClick={handleUseText}
                   disabled={isTranscribing || !transcribedText.trim()}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-700 px-5 py-2 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50 transition-all shadow-md shadow-blue-700/20 cursor-pointer"
                 >
-                  USE THIS TEXT IN COMPLAINT FORM
+                  <span>{appLang === 'hi' ? 'शिकायत फॉर्म में उपयोग करें' : 'Use in Complaint Form'}</span>
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -423,3 +465,4 @@ export default function VoiceReportPage() {
     </div>
   );
 }
+

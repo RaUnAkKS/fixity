@@ -8,7 +8,37 @@ export interface User {
   phone?: string;
   role: 'citizen' | 'officer' | 'admin';
   preferred_language: string;
+  civic_reputation?: number;
+  civic_level?: string;
+  reports_count?: number;
+  confirmed_reports_count?: number;
+  verified_resolutions_count?: number;
+  community_confirmations_count?: number;
   created_at: string;
+}
+
+export interface ReputationBreakdown {
+  civic_reputation: number;
+  civic_level: string;
+  reports_count: number;
+  confirmed_reports_count: number;
+  verified_resolutions_count: number;
+  community_confirmations_count: number;
+  breakdown: {
+    valid_reports_points: number;
+    confirmations_given_points: number;
+    verified_resolutions_points: number;
+    community_bonuses_points: number;
+  };
+}
+
+export interface ConfirmationResponse {
+  confirmed: boolean;
+  confirmation_count: number;
+  community_signal: string;
+  community_signal_score: number;
+  is_community_critical: boolean;
+  user_has_confirmed: boolean;
 }
 
 export interface LoginRequest {
@@ -60,6 +90,11 @@ export interface Complaint {
   department_id?: number;
   cluster_id?: string;
   ai_analysis?: Record<string, any>;
+  confirmation_count?: number;
+  community_signal?: 'Low' | 'Moderate' | 'Elevated' | 'High' | string;
+  community_signal_score?: number;
+  user_has_confirmed?: boolean;
+  is_community_critical?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -78,6 +113,7 @@ export interface ComplaintDetail extends Complaint {
   analysis?: AnalysisResult;
   cluster?: ClusterSummary;
   verifications: Verification[];
+  is_author?: boolean;
 }
 
 export interface PaginatedResponse<T> {
@@ -229,21 +265,65 @@ export interface ImpactMeasurement {
 // ============================================================
 // COPILOT
 // ============================================================
-export interface CopilotQuery {
+export interface CopilotAction {
+  type: 'FOCUS_MAP' | 'HIGHLIGHT_COMPLAINTS' | 'FILTER_VIEW' | 'OPEN_MODAL' | string;
+  latitude?: number;
+  longitude?: number;
+  zoom?: number;
+  ward_id?: number;
+  category?: string;
+  highlight_complaint_ids?: string[];
+  metadata?: Record<string, any>;
+}
+
+export interface CopilotChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface CopilotChatRequest {
   query: string;
-  conversation_id?: string;
+  ward_id?: number;
+  category?: string;
+  conversation_history?: CopilotChatMessage[];
 }
 
-export interface CopilotResponse {
-  response: string;
-  tool_calls: ToolCall[];
-  conversation_id: string;
+export interface CopilotChatResponse {
+  answer: string;
+  key_findings: string[];
+  recommendations: string[];
+  data?: Record<string, any>;
+  sources?: { tool: string; records_evaluated: number }[];
+  actions: CopilotAction[];
+  suggested_followups: string[];
 }
 
-export interface ToolCall {
-  tool_name: string;
-  arguments: Record<string, any>;
-  result: Record<string, any>;
+export interface CriticalAlertItem {
+  ward_id: number;
+  ward_name: string;
+  category: string;
+  active_complaints: number;
+  avg_severity: number;
+  community_confirmations: number;
+  urgency: 'Critical' | 'Elevated' | string;
+  summary: string;
+}
+
+export interface CopilotBriefingResponse {
+  headline: string;
+  priority_level: 'Normal' | 'Elevated' | 'Critical';
+  summary: string;
+  critical_alerts: CriticalAlertItem[];
+  workload_summary: Record<string, any>;
+  citizen_trust_metric: Record<string, any>;
+  generated_at: string;
+}
+
+export interface CopilotSuggestionItem {
+  title: string;
+  query: string;
+  category: string;
+  icon?: string;
 }
 
 // ============================================================

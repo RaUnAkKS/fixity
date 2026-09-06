@@ -7,9 +7,10 @@ import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/lib/ty
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (data: LoginRequest) => Promise<void>;
-  register: (data: RegisterRequest) => Promise<void>;
+  login: (data: LoginRequest) => Promise<User>;
+  register: (data: RegisterRequest) => Promise<User>;
   logout: () => void;
+  switchRole: (targetRole?: 'citizen' | 'officer') => Promise<User>;
   isAuthenticated: boolean;
   isCitizen: boolean;
   isOfficer: boolean;
@@ -43,16 +44,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  const login = async (data: LoginRequest) => {
+  const login = async (data: LoginRequest): Promise<User> => {
     const response = await api.post<AuthResponse>('/api/auth/login', data);
     localStorage.setItem('civicai_token', response.token);
     setUser(response.user);
+    return response.user;
   };
 
-  const register = async (data: RegisterRequest) => {
+  const register = async (data: RegisterRequest): Promise<User> => {
     const response = await api.post<AuthResponse>('/api/auth/register', data);
     localStorage.setItem('civicai_token', response.token);
     setUser(response.user);
+    return response.user;
+  };
+
+  const switchRole = async (targetRole?: 'citizen' | 'officer'): Promise<User> => {
+    const res = await api.post<{ status: string; role: 'citizen' | 'officer' | 'admin'; token: string; user: User }>(
+      '/api/auth/switch-role',
+      { role: targetRole }
+    );
+    localStorage.setItem('civicai_token', res.token);
+    setUser(res.user);
+    return res.user;
   };
 
   const logout = () => {
@@ -68,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
+        switchRole,
         isAuthenticated: !!user,
         isCitizen: user?.role === 'citizen',
         isOfficer: user?.role === 'officer' || user?.role === 'admin',
