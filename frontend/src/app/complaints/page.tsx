@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo,Suspense } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
@@ -57,8 +57,7 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c * 10) / 10;
 }
-
-export default function ComplaintsPage() {
+function ComplaintsContent() {
   const searchParams = useSearchParams();
   const initialView = searchParams.get('view') === 'nearby' ? 'nearby' : 'my';
   const initialMode = searchParams.get('view_mode') === 'heatmap' ? 'heatmap' : 'list';
@@ -819,6 +818,21 @@ export default function ComplaintsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ComplaintsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="bg-slate-50 min-h-screen py-8 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="h-8 w-8 text-blue-700 animate-spin" />
+          <span className="text-xs text-slate-500">Loading complaints...</span>
+        </div>
+      }
+    >
+      <ComplaintsContent />
+    </Suspense>
   );
 }
 
