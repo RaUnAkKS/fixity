@@ -12,25 +12,133 @@ from app.schemas.complaint import ComplaintCreate
 from app.services.geocoding_service import reverse_geocode
 
 
+STOP_WORDS = {
+    "the", "a", "an", "is", "in", "at", "on", "of", "to", "for", "with",
+    "and", "or", "near", "by", "from", "it", "this", "that", "there", "our",
+    "my", "area", "please", "fix", "repair", "very", "facing", "problem", "issue",
+}
+
+CIVIC_KEYWORDS = {
+    "pothole", "potholes", "street", "road", "streetlight", "light", "lamp",
+    "garbage", "trash", "waste", "drain", "drainage", "water", "leak", "leakage",
+    "pipe", "pipeline", "manhole", "footpath", "sidewalk", "dog", "dogs",
+    "wire", "cable", "pole", "tree", "traffic", "signal", "park", "sewage", "gutter"
+}
+
+
+def haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great circle distance between two points on the earth in meters."""
+    R = 6371000.0  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_phi / 2.0) ** 2 + \
+        math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return R * c
+
+
+def extract_keywords(text: str) -> set[str]:
+    """Extract significant lowercase alphanumeric tokens from complaint text."""
+    if not text:
+        return set()
+    import re
+    tokens = re.findall(r"\b[a-zA-Z0-9_-]{3,}\b", text.lower())
+    return {t for t in tokens if t not in STOP_WORDS}
+
+
+async def find_duplicate_complaint(
+    db: AsyncSession,
+    text: str,
+    latitude: float,
+    longitude: float,
+    category: str | None = None,
+) -> Complaint | None:
+    """
+    Search for an active nearby complaint representing the same civic issue.
+    
+    Rules:
+      1. Proximity: within ~150 meters.
+      2. Status: active ('submitted', 'analyzing', 'analyzed', 'assigned', 'in_progress').
+      3. Topic similarity: overlapping civic keywords & category matching.
+      4. Returns the root parent Complaint if duplicate, else None.
+    """
+    if latitude is None or longitude is None:
+        return None
+
+    # Fetch active complaints created in recent times
+    query = select(Complaint).where(
+        Complaint.status.in_(["submitted", "analyzing", "analyzed", "assigned", "in_progress"]),
+        Complaint.latitude.isnot(None),
+        Complaint.longitude.isnot(None),
+    )
+    result = await db.execute(query)
+    candidates = result.scalars().all()
+
+    target_tokens = extract_keywords(text)
+    norm_category = (category or "").strip().lower()
+
+    for cand in candidates:
+        # Distance check
+        dist = haversine_distance_meters(latitude, longitude, cand.latitude, cand.longitude)
+        if dist > 180.0:
+            continue
+
+        # Category compatibility check (distinct category issues at same location remain independent)
+        cand_cat = (cand.category or "").strip().lower()
+        if norm_category and cand_cat and norm_category != cand_cat:
+            continue
+
+        cand_tokens = extract_keywords(cand.original_text or "")
+        intersection = target_tokens & cand_tokens
+        union = target_tokens | cand_tokens
+        jaccard = len(intersection) / max(1, len(union))
+        common_civic = intersection & CIVIC_KEYWORDS
+
+        is_dup = False
+        # Very close proximity (< 45m) with matching category and at least 1 keyword
+        if dist <= 45.0 and (norm_category == cand_cat or len(common_civic) >= 1 or jaccard >= 0.2):
+            is_dup = True
+        # Neighborhood proximity (< 180m) with strong civic keyword overlap or high jaccard
+        elif dist <= 180.0 and (len(common_civic) >= 2 or jaccard >= 0.35):
+            is_dup = True
+
+        if is_dup:
+            # If candidate is already linked to a parent, resolve to the root parent issue
+            if cand.parent_issue_id:
+                root_parent = await db.get(Complaint, cand.parent_issue_id)
+                if root_parent:
+                    return root_parent
+            return cand
+
+    return None
+
+
 async def create_complaint(
     db: AsyncSession, data: ComplaintCreate, citizen_id: UUID
 ) -> Complaint:
     """Create a new complaint with geocoded address."""
-    # Reverse-geocode to get address
-    geo = await reverse_geocode(data.latitude, data.longitude)
+    # Use client-provided address or reverse-geocode
+    address = (data.address or "").strip()
+    if not address:
+        geo = await reverse_geocode(data.latitude, data.longitude)
+        address = geo.get("address", "")
+    if not address:
+        address = f"Ward Location ({round(data.latitude, 4)}, {round(data.longitude, 4)})"
 
     complaint = Complaint(
         citizen_id=citizen_id,
         original_text=data.original_text,
         latitude=data.latitude,
         longitude=data.longitude,
-        address=geo.get("address", ""),
+        address=address,
         detected_language=data.language,
         category=data.category,
         status="submitted",
     )
     # Set PostGIS point via WKT (Well-Known Text)
-    from sqlalchemy import text
     complaint.location = func.ST_SetSRID(
         func.ST_MakePoint(data.longitude, data.latitude), 4326
     )
@@ -78,10 +186,11 @@ async def list_complaints(
     status: str | None = None,
     severity_min: int | None = None,
     severity_max: int | None = None,
+    sort_by: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> dict:
-    """List complaints with filters and pagination."""
+    """List complaints with filters, sorting, and pagination."""
     query = select(Complaint)
     count_query = select(func.count(Complaint.id))
 
@@ -110,7 +219,19 @@ async def list_complaints(
     pages = math.ceil(total / limit) if total > 0 else 1
     offset = (page - 1) * limit
 
-    query = query.order_by(Complaint.created_at.desc()).offset(offset).limit(limit)
+    # Apply sorting
+    if sort_by in ("popular", "confirmations", "supports"):
+        query = query.order_by(
+            Complaint.confirmation_count.desc(),
+            Complaint.severity.desc(),
+            Complaint.created_at.desc(),
+        )
+    elif sort_by == "severity":
+        query = query.order_by(Complaint.severity.desc(), Complaint.created_at.desc())
+    else:
+        query = query.order_by(Complaint.created_at.desc())
+
+    query = query.offset(offset).limit(limit)
 
     result = await db.execute(query)
     items = result.scalars().all()
@@ -155,12 +276,13 @@ async def update_complaint_status(
 
     # Validate allowed transitions
     allowed_transitions = {
-        "submitted": ["analyzing", "assigned"],
-        "analyzing": ["analyzed"],
-        "analyzed": ["assigned"],
-        "assigned": ["in_progress"],
-        "in_progress": ["resolved"],
-        "resolved": ["verified"],
+        "submitted": ["analyzing", "analyzed", "assigned", "in_progress", "resolved"],
+        "analyzing": ["analyzed", "assigned"],
+        "analyzed": ["assigned", "in_progress", "resolved"],
+        "assigned": ["in_progress", "resolved"],
+        "in_progress": ["resolved", "assigned"],
+        "resolved": ["verified", "in_progress"],
+        "verified": ["in_progress"],
     }
 
     allowed = allowed_transitions.get(complaint.status, [])
@@ -171,7 +293,7 @@ async def update_complaint_status(
         )
 
     complaint.status = new_status
-    await db.flush()
+    await db.commit()
     await db.refresh(complaint)
     return complaint
 

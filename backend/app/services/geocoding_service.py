@@ -21,7 +21,7 @@ async def reverse_geocode(lat: float, lng: float) -> dict:
         return _geocode_cache[cache_key]
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=1.5) as client:
             response = await client.get(
                 "https://nominatim.openstreetmap.org/reverse",
                 params={
@@ -35,20 +35,19 @@ async def reverse_geocode(lat: float, lng: float) -> dict:
                     "User-Agent": settings.NOMINATIM_USER_AGENT,
                 },
             )
-            response.raise_for_status()
-            data = response.json()
-
-        result = {
-            "address": data.get("display_name", ""),
-            "suburb": data.get("address", {}).get("suburb", ""),
-            "city": data.get("address", {}).get("city", ""),
-            "state": data.get("address", {}).get("state", ""),
-            "postcode": data.get("address", {}).get("postcode", ""),
-        }
-
-        _geocode_cache[cache_key] = result
-        return result
-
+            if response.status_code == 200:
+                data = response.json()
+                result = {
+                    "address": data.get("display_name", ""),
+                    "suburb": data.get("address", {}).get("suburb", ""),
+                    "city": data.get("address", {}).get("city", ""),
+                    "state": data.get("address", {}).get("state", ""),
+                    "postcode": data.get("address", {}).get("postcode", ""),
+                }
+                _geocode_cache[cache_key] = result
+                return result
     except Exception:
-        # Fail gracefully — geocoding is best-effort
-        return {"address": "", "suburb": "", "city": "", "state": "", "postcode": ""}
+        # Fail gracefully & immediately — geocoding is best-effort
+        pass
+
+    return {"address": "", "suburb": "", "city": "", "state": "", "postcode": ""}

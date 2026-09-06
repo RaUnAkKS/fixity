@@ -171,6 +171,99 @@ IMAGE_ANALYSIS_SCHEMA = {
 
 
 # =====================================================================
+# 2B. Photo Auto-Scan & Detection Prompt & Schema (Accessibility Feature)
+# =====================================================================
+
+PHOTO_AUTOSCAN_PROMPT = """You are an AI computer vision municipal assistant designed for accessibility, helping citizens report civic infrastructure issues by just snapping or uploading a photo.
+
+Analyze the uploaded photo and extract:
+1. A clear, plain-language problem description of the visible civic issue (written simply and clearly as a complaint description, 2-3 sentences).
+2. The most accurate municipal category from:
+   - Road Infrastructure
+   - Water Supply
+   - Drainage & Sewage
+   - Sanitation & Waste
+   - Electricity
+   - Healthcare
+   - Education
+   - Public Transport
+   - Parks & Recreation
+   - Building & Construction
+   - Pollution
+   - Public Safety
+   - Other
+3. The specific subcategory (e.g. 'Pothole', 'Garbage Overflow', 'Exposed Electrical Wire', 'Clogged Drain', 'Water Leakage', 'Broken Streetlight', 'Damaged Footpath').
+4. Estimated severity score (1-100).
+5. Granular detected issues list (e.g. ['deep crater', 'waterlogged road', 'traffic obstruction']).
+6. Suggested responsible department (e.g. 'Public Works Department', 'Municipal Sanitation Department', 'Water Supply & Sewerage Board', 'Electricity Board').
+7. Whether the image shows a genuine civic issue (is_relevant: true/false). If false, explain politely in description what was seen instead.
+
+CRITICAL RULES:
+- Be strictly factual based on what is visible in the photo.
+- Write a ready-to-submit problem description that directly describes the visible hazard/issue.
+"""
+
+PHOTO_AUTOSCAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "description": {
+            "type": "string",
+            "description": "Generated natural language complaint description suitable for civic report"
+        },
+        "category": {
+            "type": "string",
+            "enum": [
+                "Road Infrastructure",
+                "Water Supply",
+                "Drainage & Sewage",
+                "Sanitation & Waste",
+                "Electricity",
+                "Healthcare",
+                "Education",
+                "Public Transport",
+                "Parks & Recreation",
+                "Building & Construction",
+                "Pollution",
+                "Public Safety",
+                "Other"
+            ]
+        },
+        "subcategory": {
+            "type": "string",
+            "description": "Specific issue subcategory"
+        },
+        "severity": {
+            "type": "integer",
+            "description": "Severity integer score from 1 to 100"
+        },
+        "detected_issues": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of visible civic issues detected"
+        },
+        "suggested_department": {
+            "type": "string",
+            "description": "Department recommended to resolve the issue"
+        },
+        "is_relevant": {
+            "type": "boolean",
+            "description": "Whether the photo depicts a genuine civic/infrastructure problem"
+        }
+    },
+    "required": [
+        "description",
+        "category",
+        "subcategory",
+        "severity",
+        "detected_issues",
+        "suggested_department",
+        "is_relevant"
+    ]
+}
+
+
+
+# =====================================================================
 # 3. Government AI Copilot System Prompt
 # =====================================================================
 

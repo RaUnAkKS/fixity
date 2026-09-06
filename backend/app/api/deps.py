@@ -64,3 +64,25 @@ def require_role(*roles: str):
         return current_user
 
     return role_checker
+
+
+security_optional = HTTPBearer(auto_error=False)
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Extract and validate JWT if present, return User or None without throwing 401/403."""
+    if not credentials or not credentials.credentials:
+        return None
+    token = credentials.credentials
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        result = await db.execute(select(User).where(User.id == UUID(user_id)))
+        return result.scalar_one_or_none()
+    except Exception:
+        return None

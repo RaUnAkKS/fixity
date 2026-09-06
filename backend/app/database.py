@@ -4,13 +4,38 @@ from app.config import get_settings
 
 settings = get_settings()
 
+def _get_async_database_url(url: str) -> str:
+    """Ensure database URL uses postgresql+asyncpg and valid query parameters."""
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    
+    if "sslmode=" in url:
+        url = url.replace("sslmode=require", "ssl=require")
+    if "channel_binding=" in url:
+        import re
+        url = re.sub(r'[?&]channel_binding=[^&]+', '', url)
+        if url.endswith('?') or url.endswith('&'):
+            url = url[:-1]
+        url = url.replace('?&', '?')
+    return url
+
+
 # Async engine for Neon PostgreSQL
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _get_async_database_url(settings.DATABASE_URL),
     echo=False,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_pre_ping=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=600,
+    pool_timeout=15,
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "command_timeout": 30,
+    },
 )
 
 # Async session factory
@@ -39,7 +64,28 @@ async def get_db():
             await session.close()
 
 
+from sqlalchemy import text
+
+
 async def init_db():
-    """Create all tables (for development only; use Alembic in production)."""
+    """Create all tables and ensure new columns exist on existing tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Non-destructive schema evolution
+        migrations = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS civic_reputation INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS confirmed_reports_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_resolutions_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS community_confirmations_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE complaints ADD COLUMN IF NOT EXISTS confirmation_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE complaints ADD COLUMN IF NOT EXISTS parent_issue_id UUID REFERENCES complaints(id);",
+            "ALTER TABLE complaints ADD COLUMN IF NOT EXISTS merged_reports_count INTEGER NOT NULL DEFAULT 0;",
+        ]
+        for query in migrations:
+            try:
+                await conn.execute(text(query))
+            except Exception:
+                pass
+
